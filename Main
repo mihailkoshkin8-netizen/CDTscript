@@ -1,0 +1,3406 @@
+-- kotost games hub v8
+-- created by top4ik
+
+if not getgenv then return end
+if getgenv().__KotostHub then
+    pcall(function()
+        local old = getgenv().__KotostHub
+        if old and old.cleanup then old.cleanup() end
+    end)
+end
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local Stats = game:GetService("Stats")
+local InsertService = game:GetService("InsertService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+if not LocalPlayer then
+    Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+    LocalPlayer = Players.LocalPlayer
+end
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 30)
+
+local CAPS = {}
+do
+    local function isFn(v) return type(v) == "function" end
+    local function isTbl(v) return type(v) == "table" end
+    CAPS.getgenv=isFn(getgenv); CAPS.gethui=isFn(gethui); CAPS.cloneref=isFn(cloneref)
+    CAPS.protectgui=isFn(protectgui); CAPS.loadstring=isFn(loadstring)
+    CAPS.identifyexecutor=isFn(identifyexecutor)
+    CAPS.setclipboard=isFn(setclipboard); CAPS.toclipboard=isFn(toclipboard); CAPS.setfpscap=isFn(setfpscap)
+    CAPS.writefile=isFn(writefile); CAPS.readfile=isFn(readfile); CAPS.isfile=isFn(isfile)
+    CAPS.isfolder=isFn(isfolder); CAPS.makefolder=isFn(makefolder); CAPS.listfiles=isFn(listfiles)
+    CAPS.delfile=isFn(delfile); CAPS.delfolder=isFn(delfolder); CAPS.appendfile=isFn(appendfile)
+    CAPS.getcustomasset=isFn(getcustomasset)
+    CAPS.hookfunction=isFn(hookfunction); CAPS.hookmetamethod=isFn(hookmetamethod)
+    CAPS.getnamecallmethod=isFn(getnamecallmethod); CAPS.getrawmetatable=isFn(getrawmetatable)
+    CAPS.setreadonly=isFn(setreadonly); CAPS.isreadonly=isFn(isreadonly)
+    CAPS.getgc=isFn(getgc); CAPS.getnilinstances=isFn(getnilinstances)
+    CAPS.getconnections=isFn(getconnections); CAPS.getinstances=isFn(getinstances)
+    CAPS.syn_request=isTbl(syn) and isFn(syn.request)
+    CAPS.http_request=isTbl(http) and isFn(http.request)
+    CAPS.request=isFn(request); CAPS.httpget_game=isFn(game.HttpGet); CAPS.httpget_fn=isFn(httpget)
+    CAPS.firetouchinterest=isFn(firetouchinterest); CAPS.fireclickdetector=isFn(fireclickdetector)
+    CAPS.fireproximityprompt=isFn(fireproximityprompt)
+    CAPS.queue_on_teleport=isFn(queue_on_teleport) or isFn(queueonteleport)
+    CAPS.Drawing=isTbl(Drawing) and isFn(Drawing.new)
+    CAPS.highlight=pcall(function() local h=Instance.new("Highlight"); h:Destroy() end)
+    CAPS.coregui=pcall(function() local c=Instance.new("Folder"); c.Parent=game:GetService("CoreGui"); c:Destroy() end)
+    CAPS.vim = VirtualInputManager ~= nil
+end
+
+local EXEC_NAME = "Unknown"
+if CAPS.identifyexecutor then
+    local ok, name, ver = pcall(identifyexecutor)
+    if ok and name then
+        EXEC_NAME = tostring(name)
+        if ver then EXEC_NAME = EXEC_NAME .. " " .. tostring(ver) end
+    end
+end
+
+local DEVICE = "PC"
+local PLATFORM_NAME = "Unknown"
+do
+    local ok, platform = pcall(function() return UserInputService:GetPlatform() end)
+    if ok and platform then PLATFORM_NAME = tostring(platform) end
+    local function hasPlatform(name)
+        local ok2, e = pcall(function() return Enum.Platform[name] end)
+        return ok2 and e ~= nil and e == platform
+    end
+    local isConsole = hasPlatform("XboxOne") or hasPlatform("PS4") or hasPlatform("PS5")
+        or hasPlatform("XboxSeriesX") or hasPlatform("Xbox360") or hasPlatform("PS3")
+    local isMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+    local isTablet = UserInputService.TouchEnabled and UserInputService.MouseEnabled
+    if isConsole then DEVICE = "Console"
+    elseif isMobile then DEVICE = "Mobile"
+    elseif isTablet then DEVICE = "Tablet"
+    else DEVICE = "PC" end
+end
+
+local function getViewport()
+    local cam = workspace.CurrentCamera
+    if cam then return cam.ViewportSize end
+    return Vector2.new(1280, 720)
+end
+
+local function computeWindowSize()
+    local v = getViewport()
+    local w, h = v.X, v.Y
+    if DEVICE == "Mobile" then
+        if h > w then return Vector2.new(math.floor(w*0.94), math.floor(h*0.62))
+        else return Vector2.new(math.floor(w*0.88), math.floor(h*0.88)) end
+    elseif DEVICE == "Tablet" then
+        return Vector2.new(math.min(720, math.floor(w*0.72)), math.min(460, math.floor(h*0.72)))
+    elseif DEVICE == "Console" then
+        return Vector2.new(math.min(880, math.floor(w*0.75)), math.min(520, math.floor(h*0.75)))
+    else
+        return Vector2.new(math.min(720, math.floor(w*0.8)), math.min(460, math.floor(h*0.8)))
+    end
+end
+
+local function getGuiParent()
+    if CAPS.gethui then local ok, p = pcall(gethui); if ok and p then return p end end
+    if CAPS.cloneref then local ok, p = pcall(cloneref, game:GetService("CoreGui")); if ok and p then return p end end
+    if CAPS.coregui then return game:GetService("CoreGui") end
+    return PlayerGui
+end
+local GuiParent = getGuiParent()
+
+local FOLDER_ROOT = "KotostHub"
+local FOLDER_CONFIG = FOLDER_ROOT .. "/Configs"
+local function ensureFolders()
+    if not (CAPS.makefolder and CAPS.isfolder) then return false end
+    pcall(function()
+        if not isfolder(FOLDER_ROOT) then makefolder(FOLDER_ROOT) end
+        if not isfolder(FOLDER_CONFIG) then makefolder(FOLDER_CONFIG) end
+    end)
+    return true
+end
+ensureFolders()
+
+local function isLocked(requires)
+    if not requires or #requires == 0 then return false, {} end
+    local missing = {}
+    for _, req in ipairs(requires) do
+        if not CAPS[req] then table.insert(missing, req) end
+    end
+    return #missing > 0, missing
+end
+
+local State = {
+    introGui = nil, mainGui = nil, running = true,
+    caps = CAPS, isLocked = isLocked, execName = EXEC_NAME,
+    device = DEVICE, platform = PLATFORM_NAME,
+    statConn = nil, viewConn = nil,
+    settings = {}, espHandles = {}, farmStates = {}, cleanupFns = {},
+    mainToggles = {},
+    mobileBtnUp = nil, mobileBtnDown = nil,
+}
+
+local Logic = {
+    flyConn=nil, flySpeed=65,
+    spinConn=nil, spinSpeed=360,
+    noclipConn=nil, antisitConn=nil,
+    infJumpConn=nil, jumpPower=50, walkSpeed=16,
+    carSpeedConn=nil, carSpeedMax=999,
+    carFlyConn=nil, carFlySpeed=80, carFlyHover=false, carFlyHoldY=nil,
+    carFarmConn=nil, carFarmSpeed=320,
+    carNoclipConn=nil, carNoclipCache=nil, carNoclipCar=nil,
+    autoDriveConn=nil, autoDriveActive=false, autoDriveTarget=nil, autoDriveSpeed=300,
+    knockConn=nil, knockActive=false,
+    meshHidden={},
+    mobileFlyUp=false, mobileFlyDown=false,
+    raceSpeed=120,
+}
+
+local function getHumanoid()
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChildOfClass("Humanoid")
+end
+
+local function getHRP()
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+local function getVehicle()
+    local hum = getHumanoid()
+    local seat = hum and hum.SeatPart
+    if seat and seat:IsA("VehicleSeat") then return seat.Parent, seat end
+end
+
+local function getCarRoot()
+    local car, seat = getVehicle()
+    if not car then return nil end
+    return seat.AssemblyRootPart or car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
+end
+
+local function getPosition(obj)
+    if not obj then return nil end
+    if obj:IsA("BasePart") then return obj.Position end
+    if obj:IsA("Model") then
+        local ok, pivot = pcall(function() return obj:GetPivot() end)
+        if ok and pivot then return pivot.Position end
+        local ok2, bb = pcall(function() return obj:GetBoundingBox() end)
+        if ok2 and bb then return bb.Position end
+    end
+    return nil
+end
+local function travelTo(targetPos, cancelCheck)
+    local hrp = getHRP(); if not hrp then return false end
+    local startPos = hrp.Position
+    local dist = (targetPos - startPos).Magnitude
+    if dist < 0.1 then return true end
+    local baseSpeed = math.clamp(dist * 1.5, 100, 800)
+    local duration = math.clamp(dist / baseSpeed, 0.15, 4)
+    local t0 = tick()
+    while true do
+        if cancelCheck and cancelCheck() then return false end
+        local hrp2 = getHRP(); if not hrp2 then return false end
+        local elapsed = tick() - t0
+        local t = math.min(1, elapsed / duration)
+        hrp2.CFrame = CFrame.new(startPos:Lerp(targetPos, t ^ 0.8))
+        if t >= 1 then return true end
+        task.wait()
+    end
+end
+
+local function teleportTo(pos)
+    local hrp = getHRP(); if not hrp then return false end
+    pcall(function() hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0)) end)
+    return true
+end
+
+local function teleportToExact(pos)
+    local hrp = getHRP(); if not hrp then return false end
+    pcall(function() hrp.CFrame = CFrame.new(pos + Vector3.new(0, 0.5, 0)) end)
+    return true
+end
+
+local function createEspForObject(obj, key, color)
+    if not CAPS.highlight or not obj then return nil end
+    local h = Instance.new("Highlight")
+    h.Adornee = obj
+    h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    h.FillColor = color or Color3.fromRGB(255, 140, 40)
+    h.OutlineColor = color and color:Lerp(Color3.fromRGB(255,255,255), 0.4) or Color3.fromRGB(255, 210, 80)
+    h.FillTransparency = 0.55; h.OutlineTransparency = 0
+    h.Name = "KotostESP_"..key; h.Parent = obj
+    return h
+end
+
+local function clearEspFor(key)
+    local data = State.espHandles[key]; if not data then return end
+    for _, h in pairs(data.highlights) do pcall(function() h:Destroy() end) end
+    data.highlights = {}; data.objs = {}
+    for _, c in ipairs(data.conns or {}) do pcall(function() c:Disconnect() end) end
+    data.conns = {}
+end
+
+-- === Player logic ===
+local function startFly()
+    if Logic.flyConn then return end
+    Logic.flyConn = RunService.RenderStepped:Connect(function()
+        local hrp = getHRP(); if not hrp then return end
+        local dir = Vector3.zero
+        local cam = workspace.CurrentCamera
+        if cam then
+            local cf = cam.CFrame
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cf.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - cf.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + cf.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - cf.RightVector end
+        end
+        local up = UserInputService:IsKeyDown(Enum.KeyCode.Space) or Logic.mobileFlyUp
+        local down = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or Logic.mobileFlyDown
+        if up then dir = dir + Vector3.yAxis end
+        if down then dir = dir - Vector3.yAxis end
+        if dir.Magnitude > 0 then dir = dir.Unit end
+        hrp.AssemblyLinearVelocity = dir * Logic.flySpeed
+    end)
+end
+local function stopFly()
+    if Logic.flyConn then pcall(function() Logic.flyConn:Disconnect() end); Logic.flyConn = nil end
+end
+
+local function startNoclip()
+    if Logic.noclipConn then return end
+    Logic.noclipConn = RunService.Heartbeat:Connect(function()
+        local char = LocalPlayer.Character; if not char then return end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then part.CanCollide = false end
+        end
+    end)
+end
+local function stopNoclip()
+    if Logic.noclipConn then pcall(function() Logic.noclipConn:Disconnect() end); Logic.noclipConn = nil end
+    local char = LocalPlayer.Character
+    if char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and not part.CanCollide then
+                pcall(function() part.CanCollide = true end)
+            end
+        end
+    end
+end
+
+local function startSpin()
+    if Logic.spinConn then return end
+    Logic.spinConn = RunService.Heartbeat:Connect(function(dt)
+        local hrp = getHRP(); if not hrp then return end
+        pcall(function()
+            hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(Logic.spinSpeed) * dt, 0)
+        end)
+    end)
+end
+local function stopSpin()
+    if Logic.spinConn then pcall(function() Logic.spinConn:Disconnect() end); Logic.spinConn = nil end
+end
+
+local function startAntisit()
+    if Logic.antisitConn then return end
+    Logic.antisitConn = RunService.Heartbeat:Connect(function()
+        local char = LocalPlayer.Character; if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Sit then hum.Sit = false end
+    end)
+end
+local function stopAntisit()
+    if Logic.antisitConn then pcall(function() Logic.antisitConn:Disconnect() end); Logic.antisitConn = nil end
+end
+
+local function startInfJump()
+    if Logic.infJumpConn then return end
+    Logic.infJumpConn = UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then return end
+        if input.KeyCode ~= Enum.KeyCode.Space then return end
+        local hum = getHumanoid(); local hrp = getHRP()
+        if hum and hrp and hum.Health > 0 then
+            local v = hrp.AssemblyLinearVelocity
+            hrp.AssemblyLinearVelocity = Vector3.new(v.X, Logic.jumpPower, v.Z)
+        end
+    end)
+end
+local function stopInfJump()
+    if Logic.infJumpConn then pcall(function() Logic.infJumpConn:Disconnect() end); Logic.infJumpConn = nil end
+end
+
+-- === Car logic ===
+local function startCarSpeed()
+    if Logic.carSpeedConn then return end
+    Logic.carSpeedConn = RunService.Stepped:Connect(function(_, dt)
+        local car, seat = getVehicle(); if not car or not seat then return end
+        local root = getCarRoot(); if not root then return end
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            local vel = root.AssemblyLinearVelocity
+            local look = seat.CFrame.LookVector
+            local fwd = Vector3.new(look.X, 0, look.Z)
+            if fwd.Magnitude < 0.1 then return end
+            fwd = fwd.Unit
+            local speed = Vector3.new(vel.X, 0, vel.Z).Magnitude
+            if speed < Logic.carSpeedMax then
+                local add = math.min(150 * dt, Logic.carSpeedMax - speed)
+                root.AssemblyLinearVelocity = vel + fwd * add
+            end
+        end
+    end)
+end
+local function stopCarSpeed()
+    if Logic.carSpeedConn then pcall(function() Logic.carSpeedConn:Disconnect() end); Logic.carSpeedConn = nil end
+end
+
+local function startCarFly()
+    if Logic.carFlyConn then return end
+    Logic.carFlyHoldY = nil
+    Logic.carFlyConn = RunService.RenderStepped:Connect(function(dt)
+        local car, seat = getVehicle(); if not car or not seat then return end
+        local root = getCarRoot(); if not root then return end
+
+        local look = seat.CFrame.LookVector
+        local flat = Vector3.new(look.X, 0, look.Z)
+        if flat.Magnitude < 0.1 then
+            local rl = root.CFrame.LookVector
+            flat = Vector3.new(rl.X, 0, rl.Z)
+        end
+        if flat.Magnitude < 0.1 then flat = Vector3.new(0, 0, -1) end
+        flat = flat.Unit
+        root.AssemblyAngularVelocity = Vector3.zero
+        pcall(function()
+            root.CFrame = CFrame.lookAt(root.Position, root.Position + flat, Vector3.yAxis)
+        end)
+
+        local dir = Vector3.zero
+        local cam = workspace.CurrentCamera
+        if cam then
+            local cf = cam.CFrame
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cf.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - cf.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + cf.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - cf.RightVector end
+        end
+
+        local upPressed = UserInputService:IsKeyDown(Enum.KeyCode.Space) or Logic.mobileFlyUp
+        local downPressed = UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or Logic.mobileFlyDown
+
+        if Logic.carFlyHover then
+            if not upPressed and not downPressed then
+                if not Logic.carFlyHoldY then
+                    Logic.carFlyHoldY = root.Position.Y
+                end
+                local pos = root.Position
+                local rot = root.CFrame - pos
+                pcall(function()
+                    root.CFrame = CFrame.new(pos.X, Logic.carFlyHoldY, pos.Z) * rot
+                end)
+                local horiz = Vector3.new(dir.X, 0, dir.Z)
+                if horiz.Magnitude > 0 then horiz = horiz.Unit end
+                horiz = horiz * Logic.carFlySpeed
+                local cur = root.AssemblyLinearVelocity
+                root.AssemblyLinearVelocity = Vector3.new(
+                    cur.X + (horiz.X - cur.X) * math.clamp(dt*10,0,1),
+                    0,
+                    cur.Z + (horiz.Z - cur.Z) * math.clamp(dt*10,0,1)
+                )
+            else
+                if upPressed then dir = dir + Vector3.yAxis end
+                if downPressed then dir = dir - Vector3.yAxis end
+                if dir.Magnitude > 0 then dir = dir.Unit end
+                local target = dir * Logic.carFlySpeed
+                local cur = root.AssemblyLinearVelocity
+                root.AssemblyLinearVelocity = cur:Lerp(target, math.clamp(dt * 10, 0, 1))
+                Logic.carFlyHoldY = root.Position.Y
+            end
+        else
+            if upPressed then dir = dir + Vector3.yAxis end
+            if downPressed then dir = dir - Vector3.yAxis end
+            if dir.Magnitude > 0 then dir = dir.Unit end
+            local target = dir * Logic.carFlySpeed
+            local cur = root.AssemblyLinearVelocity
+            if upPressed or downPressed then
+                root.AssemblyLinearVelocity = cur:Lerp(target, math.clamp(dt * 10, 0, 1))
+            else
+                root.AssemblyLinearVelocity = cur:Lerp(
+                    Vector3.new(target.X, cur.Y, target.Z),
+                    math.clamp(dt * 8, 0, 1)
+                )
+            end
+        end
+    end)
+end
+local function stopCarFly()
+    if Logic.carFlyConn then pcall(function() Logic.carFlyConn:Disconnect() end); Logic.carFlyConn = nil end
+    Logic.carFlyHoldY = nil
+    if State.mobileBtnUp then State.mobileBtnUp.Visible = false end
+    if State.mobileBtnDown then State.mobileBtnDown.Visible = false end
+end
+
+local function startCarFarm()
+    if Logic.carFarmConn then return end
+    local startCF, startPos, dir = nil, nil, nil
+    Logic.carFarmConn = RunService.Stepped:Connect(function(_, dt)
+        local car, seat = getVehicle(); if not car or not seat then return end
+        local root = getCarRoot(); if not root then return end
+        if not startCF then
+            startCF = root.CFrame
+            startPos = root.Position
+            local look = seat.CFrame.LookVector
+            dir = Vector3.new(look.X, 0, look.Z)
+            if dir.Magnitude < 0.1 then dir = Vector3.new(0, 0, -1) end
+            dir = dir.Unit
+        end
+        local traveled = (root.Position - startPos):Dot(dir)
+        if traveled > 3000 then
+            root.CFrame = startCF
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        else
+            root.AssemblyAngularVelocity = Vector3.zero
+            root.AssemblyLinearVelocity = dir * Logic.carFarmSpeed + Vector3.new(0, -15, 0)
+            root.CFrame = CFrame.lookAt(root.Position, root.Position + dir)
+        end
+    end)
+end
+local function stopCarFarm()
+    if Logic.carFarmConn then pcall(function() Logic.carFarmConn:Disconnect() end); Logic.carFarmConn = nil end
+end
+
+-- collect ALL parts of the car (joints + assembly)
+local function collectCarParts(car, seatRoot)
+    local parts = {}
+    local visited = {}
+    local function addPart(p)
+        if not p or visited[p] then return end
+        if not p:IsA("BasePart") then return end
+        visited[p] = true
+        table.insert(parts, p)
+        for _, c in ipairs(p:GetChildren()) do
+            if c:IsA("Weld") or c:IsA("WeldConstraint") or c:IsA("Motor6D")
+            or c:IsA("Snap") or c:IsA("ManualWeld") then
+                local other
+                if c.Part0 == p then other = c.Part1
+                elseif c.Part1 == p then other = c.Part0 end
+                if other then addPart(other) end
+            end
+        end
+        for _, c in ipairs(p:GetChildren()) do
+            if c:IsA("BasePart") then addPart(c) end
+        end
+    end
+    for _, d in ipairs(car:GetDescendants()) do
+        if d:IsA("BasePart") then addPart(d) end
+    end
+    if seatRoot then
+        for _, part in ipairs(workspace:GetDescendants()) do
+            if part:IsA("BasePart") and part.AssemblyRootPart == seatRoot then
+                addPart(part)
+            end
+        end
+    end
+    return parts
+end
+
+local function startCarNoclip()
+    if Logic.carNoclipConn then return end
+    Logic.carNoclipCache = {}
+    Logic.carNoclipCar = nil
+    Logic.carNoclipConn = RunService.Stepped:Connect(function()
+        local car, seat = getVehicle(); if not car or not seat then return end
+        local root = seat.AssemblyRootPart; if not root then return end
+
+        if Logic.carNoclipCar ~= car then
+            Logic.carNoclipCache = {}
+            local parts = collectCarParts(car, root)
+            for _, p in ipairs(parts) do
+                table.insert(Logic.carNoclipCache, {
+                    part = p,
+                    collide = p.CanCollide,
+                    query = p.CanQuery,
+                    touch = p.CanTouch,
+                })
+            end
+            Logic.carNoclipCar = car
+        end
+
+        for _, e in ipairs(Logic.carNoclipCache) do
+            local part = e.part
+            if part.Parent then
+                if part.CanCollide then part.CanCollide = false end
+                if part.CanQuery then part.CanQuery = false end
+                if part.CanTouch then part.CanTouch = false end
+            end
+        end
+    end)
+end
+local function stopCarNoclip()
+    if Logic.carNoclipConn then
+        pcall(function() Logic.carNoclipConn:Disconnect() end)
+        Logic.carNoclipConn = nil
+    end
+    if Logic.carNoclipCache then
+        for _, e in ipairs(Logic.carNoclipCache) do
+            local part = e.part
+            if part and part.Parent then
+                pcall(function()
+                    part.CanCollide = e.collide
+                    part.CanQuery = e.query
+                    part.CanTouch = e.touch
+                end)
+            end
+        end
+    end
+    Logic.carNoclipCache = {}
+    Logic.carNoclipCar = nil
+end
+
+-- === Auto Driving (loop A <-> B without losing speed) ===
+local AUTO_A = Vector3.new(-4963, 603, 5236)
+local AUTO_B = Vector3.new(-4946, 603, 2328)
+
+local function startAutoDrive()
+    if Logic.autoDriveConn then return end
+    Logic.autoDriveActive = true
+    local phase = "teleportA"
+
+    Logic.autoDriveConn = RunService.Stepped:Connect(function(_, dt)
+        if not Logic.autoDriveActive then return end
+        local car, seat = getVehicle()
+        if not car or not seat then
+            Logic.autoDriveActive = false
+            if Logic.autoDriveConn then
+                pcall(function() Logic.autoDriveConn:Disconnect() end)
+                Logic.autoDriveConn = nil
+            end
+            return
+        end
+        local root = seat.AssemblyRootPart or car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
+        if not root then return end
+
+        if phase == "teleportA" then
+            root.CFrame = CFrame.lookAt(AUTO_A, AUTO_B)
+            root.AssemblyLinearVelocity = (AUTO_B - AUTO_A).Unit * Logic.autoDriveSpeed
+            phase = "toB"
+        elseif phase == "toB" then
+            local dir = (AUTO_B - root.Position)
+            local dist = Vector3.new(dir.X, 0, dir.Z).Magnitude
+            if dist < 8 then
+                root.CFrame = CFrame.lookAt(AUTO_A, AUTO_B)
+                root.AssemblyLinearVelocity = (AUTO_B - AUTO_A).Unit * Logic.autoDriveSpeed
+                phase = "toB"
+            else
+                root.AssemblyAngularVelocity = Vector3.zero
+                root.AssemblyLinearVelocity = (AUTO_B - AUTO_A).Unit * Logic.autoDriveSpeed
+                root.CFrame = CFrame.lookAt(root.Position, root.Position + (AUTO_B - AUTO_A).Unit)
+            end
+        end
+    end)
+end
+
+local function stopAutoDrive()
+    Logic.autoDriveActive = false
+    if Logic.autoDriveConn then
+        pcall(function() Logic.autoDriveConn:Disconnect() end)
+        Logic.autoDriveConn = nil
+    end
+end
+
+-- === Auto Knock Knock (houses) ===
+local function pressE()
+    if CAPS.vim then
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+            task.wait(0.05)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+        end)
+    else
+        pcall(function()
+            local vim = game:GetService("VirtualInputManager")
+            vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+            task.wait(0.05)
+            vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+        end)
+    end
+end
+
+local function startKnockKnock()
+    if Logic.knockConn then return end
+    Logic.knockActive = true
+
+    task.spawn(function()
+        while Logic.knockActive do
+            local h = workspace:FindFirstChild("Halloween2026")
+            local folder = h and h:FindFirstChild("HalloweenHouses")
+            if not folder then break end
+            local houses = {}
+            for _, m in ipairs(folder:GetChildren()) do
+                if m:IsA("Model") then table.insert(houses, m) end
+            end
+            if #houses == 0 then break end
+
+            for _, model in ipairs(houses) do
+                if not Logic.knockActive then break end
+                local door = model:FindFirstChild("HalloweenDoor", true)
+                if door then
+                    local pos = getPosition(door)
+                    if pos then
+                        teleportToExact(pos)
+                        task.wait(0.5)
+                        pressE()
+                        task.wait(0.1)
+                        pressE()
+                        task.wait(0.6)
+                    end
+                end
+            end
+
+            -- finished all houses; auto-off
+            Logic.knockActive = false
+            if Logic.knockConn then
+                pcall(function() Logic.knockConn() end)
+                Logic.knockConn = nil
+            end
+        end
+    end)
+
+    -- hold connection marker
+    Logic.knockConn = function() Logic.knockActive = false end
+end
+
+local function stopKnockKnock()
+    Logic.knockActive = false
+    Logic.knockConn = nil
+end
+
+-- Mesh swap
+local function applyMeshSwap(assetId)
+    local car = getVehicle(); if not car then return end
+    task.spawn(function()
+        local ok, model = pcall(function() return InsertService:LoadAsset(assetId) end)
+        if not ok or not model then
+            local ok2, objs = pcall(function() return game:GetObjects("rbxassetid://" .. tostring(assetId)) end)
+            if ok2 and objs and objs[1] then model = objs[1]; ok = true end
+        end
+        if not ok or not model then return end
+        local mesh = model:FindFirstChildWhichIsA("MeshPart", true) or model:FindFirstChildWhichIsA("BasePart", true)
+        if not mesh then pcall(function() model:Destroy() end); return end
+        local root = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
+        if not root then pcall(function() model:Destroy() end); return end
+        local clone = mesh:Clone()
+        clone.Name = "KotostMesh_" .. assetId
+        clone.CFrame = root.CFrame
+        clone.Anchored = false
+        clone.CanCollide = false
+        clone.Massless = true
+        clone.Parent = car
+        local weld = Instance.new("WeldConstraint")
+        weld.Part0 = root; weld.Part1 = clone; weld.Parent = clone
+        for _, part in ipairs(car:GetDescendants()) do
+            if part:IsA("BasePart") and part ~= root and part ~= clone
+                and not part:IsDescendantOf(clone) then
+                Logic.meshHidden[part] = part.Transparency
+                part.Transparency = 1
+            end
+        end
+        pcall(function() model:Destroy() end)
+    end)
+end
+
+local function restoreMesh()
+    local car = getVehicle(); if not car then return end
+    for part, tr in pairs(Logic.meshHidden) do
+        if part.Parent then part.Transparency = tr end
+    end
+    Logic.meshHidden = {}
+    for _, part in ipairs(car:GetDescendants()) do
+        if part.Name:find("KotostMesh_") then pcall(function() part:Destroy() end) end
+    end
+end
+-- === Notifier ===
+local function makeNotifier(gui)
+    local area=Instance.new("Frame")
+    area.AnchorPoint=Vector2.new(1,0); area.Position=UDim2.new(1,-10,0,10)
+    area.Size=UDim2.new(0,260,0,0); area.AutomaticSize=Enum.AutomaticSize.Y
+    area.BackgroundTransparency=1; area.ZIndex=99999; area.Parent=gui
+    local l=Instance.new("UIListLayout",area); l.Padding=UDim.new(0,6); l.SortOrder=Enum.SortOrder.LayoutOrder
+    local n=0
+    return function(title,text,color)
+        n=n+1
+        local f=Instance.new("Frame")
+        f.Size=UDim2.new(1,0,0,0); f.AutomaticSize=Enum.AutomaticSize.Y
+        f.BackgroundColor3=Color3.fromRGB(40,40,50); f.BorderSizePixel=0
+        f.LayoutOrder=n; f.ZIndex=99999; f.Parent=area
+        Instance.new("UICorner",f).CornerRadius=UDim.new(0,6)
+        local st=Instance.new("UIStroke",f); st.Color=color or Color3.fromRGB(80,80,100); st.Thickness=1
+        local lbl=Instance.new("TextLabel")
+        lbl.Size=UDim2.new(1,-16,0,0); lbl.AutomaticSize=Enum.AutomaticSize.Y
+        lbl.Position=UDim2.fromOffset(8,6); lbl.BackgroundTransparency=1
+        lbl.Text=title .. (text and ("\n"..text) or "")
+        lbl.TextColor3=Color3.fromRGB(220,220,230); lbl.Font=Enum.Font.Gotham
+        lbl.TextSize=12; lbl.TextXAlignment=Enum.TextXAlignment.Left; lbl.TextWrapped=true
+        lbl.TextYAlignment=Enum.TextYAlignment.Top; lbl.Parent=f
+        local p=Instance.new("UIPadding",lbl); p.PaddingBottom=UDim.new(0,6); p.PaddingRight=UDim.new(0,8)
+        task.delay(4,function() pcall(function() if f and f.Parent then f:Destroy() end end) end)
+    end
+end
+
+-- ============ INTRO ============
+local function makeIntro(onDone)
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "KotostIntro_"..tostring(math.random(1,1e6))
+    gui.ResetOnSpawn=false; gui.IgnoreGuiInset=true; gui.DisplayOrder=999999
+    gui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
+    if CAPS.protectgui then pcall(protectgui, gui) end
+    local ok=pcall(function() gui.Parent=GuiParent end)
+    if not ok or not gui.Parent then gui.Parent=PlayerGui end
+
+    local bg=Instance.new("Frame")
+    bg.BackgroundColor3=Color3.fromRGB(0,0,0); bg.BackgroundTransparency=1
+    bg.BorderSizePixel=0; bg.Size=UDim2.fromScale(1,1); bg.ZIndex=1; bg.Parent=gui
+
+    local blur=Instance.new("BlurEffect"); blur.Size=0; blur.Parent=Lighting
+
+    local vp=getViewport()
+    local centerY=vp.Y*0.42
+    local squareSize=160
+    local textGap=30
+
+    local holder=Instance.new("Frame")
+    holder.Size=UDim2.fromOffset(squareSize,squareSize)
+    holder.Position=UDim2.new(0.5,0,0,centerY)
+    holder.AnchorPoint=Vector2.new(0.5,0.5); holder.BackgroundTransparency=1
+    holder.ClipsDescendants=true; holder.ZIndex=3; holder.Parent=bg
+
+    local holderScale=Instance.new("UIScale"); holderScale.Scale=1; holderScale.Parent=holder
+
+    local mask=Instance.new("Frame")
+    mask.Size=UDim2.new(1,0,0,0); mask.BackgroundTransparency=1
+    mask.ClipsDescendants=true; mask.Parent=holder
+
+    local img=Instance.new("ImageLabel")
+    img.Size=UDim2.fromOffset(squareSize,squareSize)
+    img.Position=UDim2.new(0.5,0,0,0); img.AnchorPoint=Vector2.new(0.5,0)
+    img.BackgroundTransparency=1; img.Image="rbxassetid://77128719632427"
+    img.ScaleType=Enum.ScaleType.Stretch; img.Parent=mask
+
+    local halo=Instance.new("Frame")
+    halo.Size=UDim2.fromOffset(squareSize+40,squareSize+40)
+    halo.Position=UDim2.new(0.5,0,0,centerY); halo.AnchorPoint=Vector2.new(0.5,0.5)
+    halo.BackgroundColor3=Color3.fromRGB(100,200,255); halo.BackgroundTransparency=1
+    halo.BorderSizePixel=0; halo.ZIndex=2; halo.Parent=bg
+    Instance.new("UICorner",halo).CornerRadius=UDim.new(0,24)
+
+    local textY=centerY+(squareSize/2)+textGap+20
+    local title=Instance.new("TextLabel")
+    title.Size=UDim2.new(1,0,0,60); title.Position=UDim2.new(0.5,0,0,textY+60)
+    title.AnchorPoint=Vector2.new(0.5,0.5); title.BackgroundTransparency=1
+    title.Text="kotost games hub"; title.TextColor3=Color3.fromRGB(255,255,255)
+    title.Font=Enum.Font.GothamBlack; title.TextSize=36; title.TextTransparency=1
+    title.ZIndex=3; title.Parent=bg
+
+    local line=Instance.new("Frame")
+    line.Size=UDim2.fromOffset(0,3); line.Position=UDim2.new(0.5,0,0,textY+38)
+    line.AnchorPoint=Vector2.new(0.5,0.5); line.BackgroundColor3=Color3.fromRGB(100,200,255)
+    line.BorderSizePixel=0; line.ZIndex=3; line.Parent=bg
+
+    TweenService:Create(bg,TweenInfo.new(0.4),{BackgroundTransparency=0}):Play()
+    TweenService:Create(blur,TweenInfo.new(0.5),{Size=14}):Play()
+
+    task.spawn(function()
+        task.wait(0.15)
+        TweenService:Create(mask,TweenInfo.new(0.7,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Size=UDim2.new(1,0,1,0)}):Play()
+        task.wait(0.6)
+        TweenService:Create(title,TweenInfo.new(0.6,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Position=UDim2.new(0.5,0,0,textY),TextTransparency=0}):Play()
+        task.wait(0.55)
+        TweenService:Create(line,TweenInfo.new(0.4,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Size=UDim2.fromOffset(240,3)}):Play()
+        task.wait(0.15)
+        TweenService:Create(holderScale,TweenInfo.new(0.14),{Scale=1.07}):Play()
+        TweenService:Create(halo,TweenInfo.new(0.14),{BackgroundTransparency=0.65}):Play()
+        task.wait(0.14)
+        TweenService:Create(holderScale,TweenInfo.new(0.22),{Scale=1}):Play()
+        TweenService:Create(halo,TweenInfo.new(0.35),{BackgroundTransparency=1}):Play()
+        task.wait(1.2)
+        if not State.running then return end
+        local fade=TweenInfo.new(0.5,Enum.EasingStyle.Quad,Enum.EasingDirection.InOut)
+        TweenService:Create(bg,fade,{BackgroundTransparency=1}):Play()
+        TweenService:Create(title,fade,{TextTransparency=1}):Play()
+        TweenService:Create(line,fade,{BackgroundTransparency=1}):Play()
+        TweenService:Create(halo,fade,{BackgroundTransparency=1}):Play()
+        TweenService:Create(mask,fade,{Size=UDim2.new(1,0,0,0)}):Play()
+        TweenService:Create(blur,fade,{Size=0}):Play()
+        task.wait(0.55)
+        pcall(function() blur:Destroy() end)
+        pcall(function() gui:Destroy() end)
+        if onDone then pcall(onDone) end
+    end)
+    return gui
+end
+
+local function getPing()
+    local ok, ping = pcall(function() return LocalPlayer:GetNetworkPing() end)
+    if ok and type(ping) == "number" then return math.floor(ping * 1000) end
+    local ok2, val = pcall(function() return Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
+    if ok2 and type(val) == "number" then return math.floor(val) end
+    return -1
+end
+
+-- ============ MAIN GUI ============
+local function makeMainGui()
+    local gui=Instance.new("ScreenGui")
+    gui.Name="KotostMain_"..tostring(math.random(1,1e6))
+    gui.ResetOnSpawn=false; gui.IgnoreGuiInset=true
+    gui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
+    if CAPS.protectgui then pcall(protectgui, gui) end
+    local ok=pcall(function() gui.Parent=GuiParent end)
+    if not ok or not gui.Parent then gui.Parent=PlayerGui end
+
+    local notify = makeNotifier(gui)
+    local initialSize = computeWindowSize()
+
+    local window=Instance.new("Frame")
+    window.Size=UDim2.fromOffset(initialSize.X, initialSize.Y)
+    window.Position=UDim2.new(0.5,0,0.5,0); window.AnchorPoint=Vector2.new(0.5,0.5)
+    window.BackgroundColor3=Color3.fromRGB(0,0,0); window.BorderSizePixel=0
+    window.ClipsDescendants=true; window.Parent=gui
+    Instance.new("UICorner",window).CornerRadius=UDim.new(0,10)
+    local outline=Instance.new("UIStroke",window)
+    outline.Color=Color3.fromRGB(40,40,45); outline.Thickness=1
+
+    local windowScale=Instance.new("UIScale")
+    windowScale.Scale=0.92; windowScale.Parent=window
+
+    local bg=Instance.new("ImageLabel")
+    bg.Size=UDim2.fromScale(1,1); bg.BackgroundTransparency=1
+    bg.Image="rbxassetid://130100152089985"; bg.ScaleType=Enum.ScaleType.Fit; bg.Parent=window
+
+    local tint=Instance.new("Frame")
+    tint.Size=UDim2.fromScale(1,1); tint.BackgroundColor3=Color3.fromRGB(0,0,0)
+    tint.BackgroundTransparency=0.55; tint.BorderSizePixel=0; tint.Parent=window
+
+    local TOPBAR_HEIGHT = 40
+    local topbar=Instance.new("Frame")
+    topbar.Size=UDim2.new(1,0,0,TOPBAR_HEIGHT)
+    topbar.BackgroundColor3=Color3.fromRGB(10,10,14)
+    topbar.BackgroundTransparency=0.3
+    topbar.BorderSizePixel=0; topbar.ZIndex=10; topbar.Parent=window
+    Instance.new("UICorner",topbar).CornerRadius=UDim.new(0,10)
+
+    local topbarLine=Instance.new("Frame")
+    topbarLine.Size=UDim2.new(1,0,0,1); topbarLine.Position=UDim2.new(0,0,1,-1)
+    topbarLine.BackgroundColor3=Color3.fromRGB(40,40,48); topbarLine.BorderSizePixel=0
+    topbarLine.Parent=topbar
+
+    local topbarTitle=Instance.new("TextLabel")
+    topbarTitle.Size=UDim2.new(1,-220,1,0); topbarTitle.Position=UDim2.fromOffset(14,0)
+    topbarTitle.BackgroundTransparency=1; topbarTitle.Text="kotost games hub"
+    topbarTitle.TextColor3=Color3.fromRGB(200,200,215); topbarTitle.Font=Enum.Font.GothamMedium
+    topbarTitle.TextSize=13; topbarTitle.TextXAlignment=Enum.TextXAlignment.Left
+    topbarTitle.Parent=topbar
+
+    local madeBy=Instance.new("TextLabel")
+    madeBy.Size=UDim2.new(0,150,1,0); madeBy.Position=UDim2.new(1,-210,0,0)
+    madeBy.BackgroundTransparency=1; madeBy.Text="created by top4ik"
+    madeBy.TextColor3=Color3.fromRGB(120,120,140); madeBy.Font=Enum.Font.Gotham
+    madeBy.TextSize=10; madeBy.TextXAlignment=Enum.TextXAlignment.Right
+    madeBy.Parent=topbar
+
+    local minimBtn=Instance.new("TextButton")
+    minimBtn.Size=UDim2.fromOffset(24,24)
+    minimBtn.Position=UDim2.new(1,-58,0.5,-12)
+    minimBtn.BackgroundColor3=Color3.fromRGB(60,60,70)
+    minimBtn.BorderSizePixel=0; minimBtn.Text="-"
+    minimBtn.TextColor3=Color3.new(1,1,1); minimBtn.Font=Enum.Font.GothamBold
+    minimBtn.TextSize=14; minimBtn.Parent=topbar
+    Instance.new("UICorner",minimBtn).CornerRadius=UDim.new(0,4)
+
+    local closeBtn=Instance.new("TextButton")
+    closeBtn.Size=UDim2.fromOffset(24,24)
+    closeBtn.Position=UDim2.new(1,-30,0.5,-12)
+    closeBtn.BackgroundColor3=Color3.fromRGB(200,60,60)
+    closeBtn.BorderSizePixel=0; closeBtn.Text="X"
+    closeBtn.TextColor3=Color3.new(1,1,1); closeBtn.Font=Enum.Font.GothamBold
+    closeBtn.TextSize=12; closeBtn.Parent=topbar
+    Instance.new("UICorner",closeBtn).CornerRadius=UDim.new(0,4)
+
+    local sidebar=Instance.new("Frame")
+    sidebar.Size=UDim2.new(0,165,1,-TOPBAR_HEIGHT)
+    sidebar.Position=UDim2.fromOffset(0,TOPBAR_HEIGHT)
+    sidebar.BackgroundColor3=Color3.fromRGB(0,0,0)
+    sidebar.BackgroundTransparency=0.35
+    sidebar.BorderSizePixel=0; sidebar.Parent=window
+
+    local sidebarLine=Instance.new("Frame")
+    sidebarLine.Size=UDim2.new(0,1,1,0); sidebarLine.Position=UDim2.new(1,-1,0,0)
+    sidebarLine.BackgroundColor3=Color3.fromRGB(35,35,40)
+    sidebarLine.BorderSizePixel=0; sidebarLine.Parent=sidebar
+
+    local logoArea=Instance.new("Frame")
+    logoArea.Size=UDim2.new(1,0,0,60); logoArea.BackgroundTransparency=1; logoArea.Parent=sidebar
+
+    local logoImg=Instance.new("ImageLabel")
+    logoImg.Size=UDim2.fromOffset(26,26); logoImg.Position=UDim2.new(0,14,0.5,-13)
+    logoImg.BackgroundTransparency=1; logoImg.Image="rbxassetid://77128719632427"
+    logoImg.ScaleType=Enum.ScaleType.Fit; logoImg.Parent=logoArea
+
+    local logoText=Instance.new("TextLabel")
+    logoText.Size=UDim2.new(1,-50,1,0); logoText.Position=UDim2.fromOffset(46,0)
+    logoText.BackgroundTransparency=1; logoText.Text="kotost hub"
+    logoText.TextColor3=Color3.fromRGB(235,235,245); logoText.Font=Enum.Font.GothamBold
+    logoText.TextSize=13; logoText.TextXAlignment=Enum.TextXAlignment.Left; logoText.Parent=logoArea
+
+    local logoLine=Instance.new("Frame")
+    logoLine.Size=UDim2.new(1,-24,0,1); logoLine.Position=UDim2.fromOffset(12,60)
+    logoLine.BackgroundColor3=Color3.fromRGB(35,35,40); logoLine.BorderSizePixel=0
+    logoLine.Parent=sidebar
+
+    local tabsContainer=Instance.new("ScrollingFrame")
+    tabsContainer.Size=UDim2.new(1,0,1,-61); tabsContainer.Position=UDim2.fromOffset(0,61)
+    tabsContainer.BackgroundTransparency=1; tabsContainer.BorderSizePixel=0
+    tabsContainer.ScrollBarThickness=0; tabsContainer.CanvasSize=UDim2.new(0,0,0,0)
+    tabsContainer.AutomaticCanvasSize=Enum.AutomaticSize.Y; tabsContainer.Parent=sidebar
+
+    local tabsLayout=Instance.new("UIListLayout",tabsContainer)
+    tabsLayout.Padding=UDim.new(0,0); tabsLayout.SortOrder=Enum.SortOrder.LayoutOrder
+
+    local content=Instance.new("Frame")
+    content.Size=UDim2.new(1,-166,1,-TOPBAR_HEIGHT)
+    content.Position=UDim2.fromOffset(166,TOPBAR_HEIGHT)
+    content.BackgroundTransparency=1; content.Parent=window
+
+    local contentInner=Instance.new("Frame")
+    contentInner.Size=UDim2.new(1,-32,1,-32); contentInner.Position=UDim2.fromOffset(16,16)
+    contentInner.BackgroundTransparency=1; contentInner.Parent=content
+
+    -- === DRAG (clamped) ===
+    do
+        local dragging = false
+        local dragStart = nil
+        local startAbsPos = nil
+
+        local function clampPos(x, y)
+            local vp = getViewport()
+            local wS = window.AbsoluteSize
+            local maxX = vp.X - wS.X
+            local maxY = vp.Y - wS.Y
+            if maxX < 0 then maxX = 0 end
+            if maxY < 0 then maxY = 0 end
+            return math.clamp(x, 0, maxX), math.clamp(y, 0, maxY)
+        end
+
+        local function commitPos(absX, absY)
+            local cx, cy = clampPos(absX, absY)
+            window.AnchorPoint = Vector2.new(0, 0)
+            window.Position = UDim2.fromOffset(cx, cy)
+        end
+
+        topbar.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                dragStart = input.Position
+                startAbsPos = window.AbsolutePosition
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        dragging = false
+                    end
+                end)
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(input)
+            if not dragging then return end
+            if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+                local d = input.Position - dragStart
+                commitPos(startAbsPos.X + d.X, startAbsPos.Y + d.Y)
+            end
+        end)
+        local cam = workspace.CurrentCamera
+        if cam then
+            cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+                if window and window.Parent then
+                    commitPos(window.AbsolutePosition.X, window.AbsolutePosition.Y)
+                end
+            end)
+        end
+    end
+
+    -- === MINI ICON ===
+    local minIcon=Instance.new("Frame")
+    minIcon.Size=UDim2.fromOffset(56,56)
+    minIcon.Position=UDim2.fromOffset(120,120)
+    minIcon.BackgroundColor3=Color3.fromRGB(0,0,0); minIcon.BorderSizePixel=0
+    minIcon.Visible=false; minIcon.Active=true; minIcon.Parent=gui
+    Instance.new("UICorner",minIcon).CornerRadius=UDim.new(0,12)
+    local mis=Instance.new("UIStroke",minIcon); mis.Color=Color3.fromRGB(60,60,70); mis.Thickness=1
+
+    local minIconImg=Instance.new("ImageLabel")
+    minIconImg.Size=UDim2.fromScale(1,1); minIconImg.BackgroundTransparency=1
+    minIconImg.Image="rbxassetid://77128719632427"; minIconImg.ScaleType=Enum.ScaleType.Fit
+    minIconImg.Parent=minIcon
+    Instance.new("UICorner",minIconImg).CornerRadius=UDim.new(0,12)
+
+    local mis2=Instance.new("UIScale",minIcon)
+
+    local minIconBtn=Instance.new("TextButton")
+    minIconBtn.Size=UDim2.fromScale(1,1); minIconBtn.BackgroundTransparency=1
+    minIconBtn.Text=""; minIconBtn.Parent=minIcon
+
+    do
+        local dragging2, dragStart2, startPos2, moved
+        minIcon.InputBegan:Connect(function(input)
+            if input.UserInputType==Enum.UserInputType.MouseButton1
+            or input.UserInputType==Enum.UserInputType.Touch then
+                dragging2=true; moved=false
+                dragStart2=input.Position; startPos2=minIcon.Position
+                input.Changed:Connect(function()
+                    if input.UserInputState==Enum.UserInputState.End then dragging2=false end
+                end)
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging2 and (input.UserInputType==Enum.UserInputType.MouseMovement
+            or input.UserInputType==Enum.UserInputType.Touch) then
+                local d=input.Position-dragStart2
+                if d.Magnitude>3 then moved=true end
+                minIcon.Position=UDim2.new(startPos2.X.Scale,startPos2.X.Offset+d.X,
+                                            startPos2.Y.Scale,startPos2.Y.Offset+d.Y)
+            end
+        end)
+        minIconBtn.MouseButton1Click:Connect(function()
+            if moved then return end
+            TweenService:Create(mis2,TweenInfo.new(0.15,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{Scale=0}):Play()
+            task.wait(0.15)
+            minIcon.Visible=false; mis2.Scale=1
+            window.Visible=true
+            window.AnchorPoint=Vector2.new(0.5,0.5)
+            window.Position=UDim2.new(0.5,0,0.5,0)
+            windowScale.Scale=0.8
+            TweenService:Create(windowScale,TweenInfo.new(0.3,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Scale=1}):Play()
+        end)
+    end
+
+    do
+        local isMin=false
+        minimBtn.MouseButton1Click:Connect(function()
+            if isMin then return end
+            isMin=true
+            local absPos=window.AbsolutePosition
+            local absSize=window.AbsoluteSize
+            window.AnchorPoint=Vector2.new(0,0)
+            window.Position=UDim2.fromOffset(absPos.X,absPos.Y)
+            window.Size=UDim2.fromOffset(absSize.X,absSize.Y)
+            local tw=TweenService:Create(window,TweenInfo.new(0.4,Enum.EasingStyle.Quad,Enum.EasingDirection.In),
+                {Position=UDim2.fromOffset(120,120),Size=UDim2.fromOffset(56,56)})
+            tw:Play(); tw.Completed:Wait()
+            window.Visible=false
+            window.AnchorPoint=Vector2.new(0.5,0.5)
+            window.Position=UDim2.new(0.5,0,0.5,0)
+            local s=computeWindowSize()
+            window.Size=UDim2.fromOffset(s.X,s.Y)
+            minIcon.Position=UDim2.fromOffset(120,120)
+            minIcon.Visible=true; mis2.Scale=0.3
+            TweenService:Create(mis2,TweenInfo.new(0.25,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Scale=1}):Play()
+            task.wait(0.25); isMin=false
+        end)
+    end
+
+    closeBtn.MouseButton1Click:Connect(function()
+        if getgenv().__KotostHub and getgenv().__KotostHub.cleanup then
+            pcall(getgenv().__KotostHub.cleanup)
+        end
+    end)
+        -- === MOBILE FLY BUTTONS ===
+    if DEVICE == "Mobile" then
+        local function makeFlyBtn(text, yPos)
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.fromOffset(64,64)
+            btn.Position = UDim2.new(1, -84, 1, yPos)
+            btn.BackgroundColor3 = Color3.fromRGB(40,40,55)
+            btn.BackgroundTransparency = 0.25
+            btn.Text = text
+            btn.TextColor3 = Color3.fromRGB(230,230,240)
+            btn.Font = Enum.Font.GothamBold
+            btn.TextSize = 26
+            btn.AutoButtonColor = false
+            btn.Visible = false
+            btn.ZIndex = 100
+            btn.Parent = gui
+            Instance.new("UICorner",btn).CornerRadius = UDim.new(0,14)
+            local s = Instance.new("UIStroke",btn)
+            s.Color = Color3.fromRGB(90,140,220); s.Thickness = 1.5
+            return btn
+        end
+
+        local btnUp = makeFlyBtn("^", -230)
+        local btnDown = makeFlyBtn("v", -158)
+
+        btnUp.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch
+            or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                Logic.mobileFlyUp = true
+            end
+        end)
+        btnUp.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch
+            or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                Logic.mobileFlyUp = false
+            end
+        end)
+        btnDown.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch
+            or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                Logic.mobileFlyDown = true
+            end
+        end)
+        btnDown.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch
+            or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                Logic.mobileFlyDown = false
+            end
+        end)
+
+        State.mobileBtnUp = btnUp
+        State.mobileBtnDown = btnDown
+    end
+
+    -- === TABS ===
+    local tabs={}
+    local currentTab=nil
+    local tabButtons={}
+
+    local function selectTab(name)
+        if not tabs[name] then return end
+        for n,btn in pairs(tabButtons) do
+            if n==name then
+                btn.bg.BackgroundColor3=Color3.fromRGB(30,30,35)
+                btn.accent.Visible=true
+                btn.label.TextColor3=Color3.fromRGB(255,255,255)
+            else
+                btn.bg.BackgroundColor3=Color3.fromRGB(0,0,0)
+                btn.accent.Visible=false
+                btn.label.TextColor3=Color3.fromRGB(150,150,160)
+            end
+        end
+        for _,f in pairs(tabs) do f.Visible=false end
+        tabs[name].Visible=true
+        currentTab=name
+    end
+
+    local function addTab(name,labelText,order)
+        local cf=Instance.new("Frame")
+        cf.Size=UDim2.fromScale(1,1); cf.BackgroundTransparency=1
+        cf.Visible=false; cf.Parent=contentInner
+        tabs[name]=cf
+
+        local tabBg=Instance.new("Frame")
+        tabBg.Size=UDim2.new(1,0,0,34)
+        tabBg.BackgroundColor3=Color3.fromRGB(0,0,0); tabBg.BackgroundTransparency=0.3
+        tabBg.BorderSizePixel=0; tabBg.LayoutOrder=order or 0; tabBg.Parent=tabsContainer
+
+        local accent=Instance.new("Frame")
+        accent.Size=UDim2.new(0,2,1,0); accent.BackgroundColor3=Color3.fromRGB(100,200,255)
+        accent.BorderSizePixel=0; accent.Visible=false; accent.Parent=tabBg
+
+        local label=Instance.new("TextLabel")
+        label.Size=UDim2.new(1,-24,1,0); label.Position=UDim2.fromOffset(14,0)
+        label.BackgroundTransparency=1; label.Text=labelText
+        label.TextColor3=Color3.fromRGB(150,150,160); label.Font=Enum.Font.Gotham
+        label.TextSize=13; label.TextXAlignment=Enum.TextXAlignment.Left; label.Parent=tabBg
+
+        local btn=Instance.new("TextButton")
+        btn.Size=UDim2.fromScale(1,1); btn.BackgroundTransparency=1
+        btn.Text=""; btn.Parent=tabBg
+
+        btn.MouseEnter:Connect(function()
+            if currentTab~=name then tabBg.BackgroundColor3=Color3.fromRGB(15,15,18) end
+        end)
+        btn.MouseLeave:Connect(function()
+            if currentTab~=name then tabBg.BackgroundColor3=Color3.fromRGB(0,0,0) end
+        end)
+        btn.MouseButton1Click:Connect(function() selectTab(name) end)
+
+        tabButtons[name]={bg=tabBg,accent=accent,label=label}
+        return cf
+    end
+
+    -- === createInteractive ===
+    local function createInteractive(parent,opts)
+        opts=opts or {}
+        local type_=opts.Type or "button"
+        local locked,missing=isLocked(opts.Requires)
+        local rowHeight=opts.Desc and 44 or 30
+
+        local row=Instance.new("TextButton")
+        row.Size=UDim2.new(1,0,0,rowHeight)
+        row.BackgroundColor3=locked and Color3.fromRGB(28,28,32) or Color3.fromRGB(34,34,42)
+        row.BorderSizePixel=0; row.Text=""; row.AutoButtonColor=false
+        row.LayoutOrder=opts.Order or 0; row.Parent=parent
+        Instance.new("UICorner",row).CornerRadius=UDim.new(0,6)
+        if locked then
+            local st=Instance.new("UIStroke",row); st.Color=Color3.fromRGB(60,60,70); st.Thickness=1
+        end
+
+        local title=Instance.new("TextLabel")
+        title.Size=UDim2.new(1,-70,0,16)
+        title.Position=UDim2.fromOffset(10,opts.Desc and 5 or 7)
+        title.BackgroundTransparency=1
+        title.Text=(locked and "[LOCK] " or "")..(opts.Text or "Button")
+        title.TextColor3=locked and Color3.fromRGB(120,120,135) or Color3.fromRGB(220,220,230)
+        title.Font=Enum.Font.GothamMedium; title.TextSize=13
+        title.TextXAlignment=Enum.TextXAlignment.Left; title.TextTruncate=Enum.TextTruncate.AtEnd
+        title.Parent=row
+
+        if opts.Desc then
+            local desc=Instance.new("TextLabel")
+            desc.Size=UDim2.new(1,-70,0,14); desc.Position=UDim2.fromOffset(10,22)
+            desc.BackgroundTransparency=1
+            desc.Text=locked and ("Need: "..table.concat(missing,", ")) or opts.Desc
+            desc.TextColor3=locked and Color3.fromRGB(140,100,100) or Color3.fromRGB(150,150,165)
+            desc.Font=Enum.Font.Gotham; desc.TextSize=11
+            desc.TextXAlignment=Enum.TextXAlignment.Left
+            desc.TextTruncate=Enum.TextTruncate.AtEnd; desc.Parent=row
+        end
+
+        local sw,ball,active=nil,nil,false
+        if type_=="toggle" then
+            sw=Instance.new("Frame")
+            sw.AnchorPoint=Vector2.new(1,0.5); sw.Position=UDim2.new(1,-10,0.5,0)
+            sw.Size=UDim2.fromOffset(38,20)
+            sw.BackgroundColor3=locked and Color3.fromRGB(45,45,55) or Color3.fromRGB(60,60,75)
+            sw.BorderSizePixel=0; sw.Parent=row
+            Instance.new("UICorner",sw).CornerRadius=UDim.new(1,0)
+            ball=Instance.new("Frame")
+            ball.Size=UDim2.fromOffset(16,16); ball.Position=UDim2.new(0,2,0.5,-8)
+            ball.BackgroundColor3=locked and Color3.fromRGB(90,90,100) or Color3.fromRGB(200,200,210)
+            ball.BorderSizePixel=0; ball.Parent=sw
+            Instance.new("UICorner",ball).CornerRadius=UDim.new(1,0)
+        end
+
+        local api={row=row,isLocked=locked,missing=missing}
+
+        if not locked then
+            row.MouseEnter:Connect(function() row.BackgroundColor3=Color3.fromRGB(48,48,60) end)
+            row.MouseLeave:Connect(function() row.BackgroundColor3=Color3.fromRGB(34,34,42) end)
+            row.MouseButton1Click:Connect(function()
+                if type_=="toggle" then
+                    active=not active
+                    if active then
+                        sw.BackgroundColor3=Color3.fromRGB(80,200,120)
+                        ball.Position=UDim2.new(1,-18,0.5,-8)
+                    else
+                        sw.BackgroundColor3=Color3.fromRGB(60,60,75)
+                        ball.Position=UDim2.new(0,2,0.5,-8)
+                    end
+                    if opts.OnToggle then pcall(opts.OnToggle,active) end
+                else
+                    if opts.OnClick then pcall(opts.OnClick) end
+                end
+            end)
+        else
+            row.MouseButton1Click:Connect(function()
+                notify("Locked","Need: "..table.concat(missing,", "),Color3.fromRGB(200,80,80))
+            end)
+        end
+
+        function api.setActive(v)
+            if type_~="toggle" or locked then return end
+            active=v==true
+            if active then
+                sw.BackgroundColor3=Color3.fromRGB(80,200,120)
+                ball.Position=UDim2.new(1,-18,0.5,-8)
+            else
+                sw.BackgroundColor3=Color3.fromRGB(60,60,75)
+                ball.Position=UDim2.new(0,2,0.5,-8)
+            end
+        end
+        function api.getActive() return active end
+        return api
+    end
+
+    -- === createNumberField ===
+    local function createNumberField(parent, opts)
+        opts = opts or {}
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1,0,0,30)
+        row.BackgroundColor3 = Color3.fromRGB(34,34,42)
+        row.BorderSizePixel = 0
+        row.LayoutOrder = opts.Order or 0
+        row.Parent = parent
+        Instance.new("UICorner",row).CornerRadius = UDim.new(0,6)
+
+        local title = Instance.new("TextLabel")
+        title.Size = UDim2.new(1,-120,1,0); title.Position = UDim2.fromOffset(10,0)
+        title.BackgroundTransparency = 1
+        title.Text = opts.Text or "Value"
+        title.TextColor3 = Color3.fromRGB(220,220,230)
+        title.Font = Enum.Font.GothamMedium; title.TextSize = 13
+        title.TextXAlignment = Enum.TextXAlignment.Left
+        title.Parent = row
+
+        local box = Instance.new("TextBox")
+        box.Size = UDim2.new(0,100,1,0)
+        box.Position = UDim2.new(1,-110,0,0)
+        box.BackgroundColor3 = Color3.fromRGB(20,20,26)
+        box.BorderSizePixel = 0
+        box.Text = tostring(opts.Default or "")
+        box.PlaceholderText = "0"
+        box.TextColor3 = Color3.fromRGB(220,220,230)
+        box.Font = Enum.Font.Gotham; box.TextSize = 12
+        box.ClearTextOnFocus = false
+        box.Parent = row
+        Instance.new("UICorner",box).CornerRadius = UDim.new(0,4)
+        local pad = Instance.new("UIPadding",box)
+        pad.PaddingLeft = UDim.new(0,6); pad.PaddingRight = UDim.new(0,6)
+
+        local minV = opts.Min or 0
+        local maxV = opts.Max or 99999
+
+        local function apply()
+            local n = tonumber(box.Text)
+            if not n then return end
+            n = math.clamp(math.floor(n+0.5), minV, maxV)
+            box.Text = tostring(n)
+            if opts.OnChange then pcall(opts.OnChange, n) end
+        end
+
+        box.FocusLost:Connect(apply)
+        return { get = function() return tonumber(box.Text) or opts.Default end }
+    end
+
+    -- === createCollapsible ===
+    local function createCollapsible(parent, titleText, order, defaultOpen)
+        local holder=Instance.new("Frame")
+        holder.Size=UDim2.new(1,0,0,32)
+        holder.BackgroundColor3=Color3.fromRGB(28,28,34)
+        holder.BorderSizePixel=0; holder.LayoutOrder=order or 0
+        holder.Parent=parent; holder.ClipsDescendants=false
+        Instance.new("UICorner",holder).CornerRadius=UDim.new(0,6)
+        local st=Instance.new("UIStroke",holder); st.Color=Color3.fromRGB(45,45,55); st.Thickness=1
+        local layout=Instance.new("UIListLayout",holder)
+        layout.Padding=UDim.new(0,0); layout.SortOrder=Enum.SortOrder.LayoutOrder
+
+        local header=Instance.new("TextButton")
+        header.Size=UDim2.new(1,0,0,32); header.BackgroundTransparency=1
+        header.Text=""; header.LayoutOrder=1; header.AutoButtonColor=false
+        header.Parent=holder
+
+        local titleLbl=Instance.new("TextLabel")
+        titleLbl.Size=UDim2.new(1,-50,1,0); titleLbl.Position=UDim2.fromOffset(12,0)
+        titleLbl.BackgroundTransparency=1; titleLbl.Text=titleText
+        titleLbl.TextColor3=Color3.fromRGB(210,210,220); titleLbl.Font=Enum.Font.GothamMedium
+        titleLbl.TextSize=13; titleLbl.TextXAlignment=Enum.TextXAlignment.Left
+        titleLbl.Parent=header
+
+        local arrow=Instance.new("TextLabel")
+        arrow.Size=UDim2.fromOffset(30,32); arrow.Position=UDim2.new(1,-32,0,0)
+        arrow.BackgroundTransparency=1; arrow.Text=">"
+        arrow.TextColor3=Color3.fromRGB(150,150,165); arrow.Font=Enum.Font.Gotham
+        arrow.TextSize=12; arrow.Parent=header
+
+        local content=Instance.new("Frame")
+        content.Size=UDim2.new(1,-16,0,0); content.Position=UDim2.fromOffset(8,0)
+        content.BackgroundTransparency=1; content.LayoutOrder=2
+        content.AutomaticSize=Enum.AutomaticSize.Y; content.Parent=holder
+        local cpad=Instance.new("UIPadding",content)
+        cpad.PaddingBottom=UDim.new(0,8); cpad.PaddingTop=UDim.new(0,2)
+        local clayout=Instance.new("UIListLayout",content)
+        clayout.Padding=UDim.new(0,4); clayout.SortOrder=Enum.SortOrder.LayoutOrder
+
+        local opened=false
+        local anim=nil
+        local generation=0
+
+        local function setOpen(v, instant)
+            generation=generation+1
+            local myGen=generation
+            local wantOpen=v==true
+            if opened==wantOpen and not instant then return end
+            opened=wantOpen
+            arrow.Text=opened and "v" or ">"
+            if anim then pcall(function() anim:Cancel() end); anim=nil end
+
+            if instant then
+                content.Visible=opened
+                if opened then
+                    holder.AutomaticSize=Enum.AutomaticSize.Y
+                    holder.Size=UDim2.new(1,0,0,0)
+                else
+                    holder.AutomaticSize=Enum.AutomaticSize.None
+                    holder.Size=UDim2.new(1,0,0,32)
+                end
+                holder.ClipsDescendants=false
+                return
+            end
+
+            if opened then
+                content.Visible=true
+                holder.ClipsDescendants=true
+                holder.AutomaticSize=Enum.AutomaticSize.None
+                holder.Size=UDim2.new(1,0,0,32)
+                task.spawn(function()
+                    RunService.Heartbeat:Wait(); RunService.Heartbeat:Wait()
+                    if myGen~=generation or not opened then return end
+                    local targetH=32+content.AbsoluteSize.Y
+                    if targetH<32 then targetH=32 end
+                    anim=TweenService:Create(holder,
+                        TweenInfo.new(0.25,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),
+                        {Size=UDim2.new(1,0,0,targetH)})
+                    anim:Play()
+                    anim.Completed:Once(function()
+                        if myGen~=generation or not opened then return end
+                        holder.AutomaticSize=Enum.AutomaticSize.Y
+                        holder.ClipsDescendants=false
+                    end)
+                end)
+            else
+                local currentH=math.max(holder.AbsoluteSize.Y,32)
+                holder.AutomaticSize=Enum.AutomaticSize.None
+                holder.Size=UDim2.new(1,0,0,currentH)
+                holder.ClipsDescendants=true
+                anim=TweenService:Create(holder,
+                    TweenInfo.new(0.25,Enum.EasingStyle.Quad,Enum.EasingDirection.In),
+                    {Size=UDim2.new(1,0,0,32)})
+                anim:Play()
+                anim.Completed:Once(function()
+                    if myGen~=generation or opened then return end
+                    content.Visible=false
+                    holder.AutomaticSize=Enum.AutomaticSize.None
+                    holder.Size=UDim2.new(1,0,0,32)
+                    holder.ClipsDescendants=false
+                end)
+            end
+        end
+
+        header.MouseButton1Click:Connect(function() setOpen(not opened) end)
+        setOpen(defaultOpen or false, true)
+
+        return {holder=holder, content=content, setOpen=setOpen}
+    end
+        -- ============================================
+    --                    INFO
+    -- ============================================
+    local infoTab=addTab("Info","info",1)
+    local infoHolder=Instance.new("Frame")
+    infoHolder.Size=UDim2.fromScale(1,1); infoHolder.BackgroundTransparency=1; infoHolder.Parent=infoTab
+
+    local leftPanel=Instance.new("Frame")
+    leftPanel.Size=UDim2.new(0,240,1,0); leftPanel.BackgroundTransparency=1; leftPanel.Parent=infoHolder
+
+    local rightPanel=Instance.new("Frame")
+    rightPanel.Size=UDim2.new(1,-256,1,0); rightPanel.Position=UDim2.fromOffset(256,0)
+    rightPanel.BackgroundColor3=Color3.fromRGB(0,0,0); rightPanel.BackgroundTransparency=0.5
+    rightPanel.BorderSizePixel=0; rightPanel.Parent=infoHolder
+    Instance.new("UICorner",rightPanel).CornerRadius=UDim.new(0,8)
+    local rp_stroke=Instance.new("UIStroke",rightPanel); rp_stroke.Color=Color3.fromRGB(40,40,48); rp_stroke.Thickness=1
+
+    local avatarFrame=Instance.new("Frame")
+    avatarFrame.Size=UDim2.fromOffset(72,72); avatarFrame.Position=UDim2.fromOffset(0,4)
+    avatarFrame.BackgroundColor3=Color3.fromRGB(30,30,35); avatarFrame.BorderSizePixel=0
+    avatarFrame.Parent=leftPanel
+    Instance.new("UICorner",avatarFrame).CornerRadius=UDim.new(1,0)
+    local av_stroke=Instance.new("UIStroke",avatarFrame); av_stroke.Color=Color3.fromRGB(80,80,95); av_stroke.Thickness=1
+
+    local avatarImg=Instance.new("ImageLabel")
+    avatarImg.Size=UDim2.fromScale(1,1); avatarImg.BackgroundTransparency=1
+    avatarImg.Image="rbxthumb://type=AvatarHeadShot&id="..tostring(LocalPlayer.UserId).."&w=150&h=150"
+    avatarImg.Parent=avatarFrame
+    Instance.new("UICorner",avatarImg).CornerRadius=UDim.new(1,0)
+
+    local nameLbl=Instance.new("TextLabel")
+    nameLbl.Size=UDim2.new(1,-80,0,22); nameLbl.Position=UDim2.fromOffset(82,8)
+    nameLbl.BackgroundTransparency=1
+    nameLbl.Text=LocalPlayer.DisplayName or LocalPlayer.Name
+    nameLbl.TextColor3=Color3.fromRGB(240,240,250); nameLbl.Font=Enum.Font.GothamBold
+    nameLbl.TextSize=16; nameLbl.TextXAlignment=Enum.TextXAlignment.Left
+    nameLbl.TextTruncate=Enum.TextTruncate.AtEnd; nameLbl.Parent=leftPanel
+
+    local nameSub=Instance.new("TextLabel")
+    nameSub.Size=UDim2.new(1,-80,0,14); nameSub.Position=UDim2.fromOffset(82,30)
+    nameSub.BackgroundTransparency=1; nameSub.Text="@"..LocalPlayer.Name
+    nameSub.TextColor3=Color3.fromRGB(140,140,160); nameSub.Font=Enum.Font.Gotham
+    nameSub.TextSize=12; nameSub.TextXAlignment=Enum.TextXAlignment.Left
+    nameSub.TextTruncate=Enum.TextTruncate.AtEnd; nameSub.Parent=leftPanel
+
+    local madeByLbl=Instance.new("TextLabel")
+    madeByLbl.Size=UDim2.new(1,-82,0,14); madeByLbl.Position=UDim2.fromOffset(82,48)
+    madeByLbl.BackgroundTransparency=1
+    madeByLbl.Text="created by top4ik"
+    madeByLbl.TextColor3=Color3.fromRGB(100,180,255)
+    madeByLbl.Font=Enum.Font.GothamBold
+    madeByLbl.TextSize=11
+    madeByLbl.TextXAlignment=Enum.TextXAlignment.Left
+    madeByLbl.Parent=leftPanel
+
+    local function makeStat(y,key)
+        local row=Instance.new("Frame")
+        row.Size=UDim2.new(1,0,0,26); row.Position=UDim2.fromOffset(0,y)
+        row.BackgroundColor3=Color3.fromRGB(0,0,0); row.BackgroundTransparency=0.5
+        row.BorderSizePixel=0; row.Parent=leftPanel
+        Instance.new("UICorner",row).CornerRadius=UDim.new(0,6)
+        local k=Instance.new("TextLabel")
+        k.Size=UDim2.new(0,100,1,0); k.Position=UDim2.fromOffset(10,0)
+        k.BackgroundTransparency=1; k.Text=key; k.TextColor3=Color3.fromRGB(150,150,165)
+        k.Font=Enum.Font.Gotham; k.TextSize=12; k.TextXAlignment=Enum.TextXAlignment.Left
+        k.Parent=row
+        local v=Instance.new("TextLabel")
+        v.Size=UDim2.new(1,-110,1,0); v.Position=UDim2.fromOffset(110,0)
+        v.BackgroundTransparency=1; v.Text="-"; v.TextColor3=Color3.fromRGB(230,230,240)
+        v.Font=Enum.Font.GothamMedium; v.TextSize=12
+        v.TextXAlignment=Enum.TextXAlignment.Left; v.TextTruncate=Enum.TextTruncate.AtEnd
+        v.Parent=row
+        return v
+    end
+
+    local pingVal=makeStat(100,"Ping")
+    local fpsVal=makeStat(130,"FPS")
+    local execVal=makeStat(160,"Executor")
+    local deviceVal=makeStat(190,"Device")
+    local creditsVal=makeStat(220,"Created by")
+    creditsVal.Text="top4ik"
+
+    execVal.Text=EXEC_NAME
+    deviceVal.Text=DEVICE.." ("..PLATFORM_NAME..")"
+
+    local fpsC,fpsT=0,0
+    local statConn=RunService.RenderStepped:Connect(function(dt)
+        fpsC=fpsC+1; fpsT=fpsT+dt
+        if fpsT>=1 then
+            local f=math.floor(fpsC/fpsT+0.5); fpsC,fpsT=0,0
+            pcall(function() fpsVal.Text=tostring(f) end)
+        end
+    end)
+    State.statConn=statConn
+
+    task.spawn(function()
+        while State.running and gui.Parent do
+            local p=getPing()
+            pingVal.Text=p>=0 and (tostring(p).." ms") or "N/A"
+            task.wait(1)
+        end
+    end)
+
+    local testTitle=Instance.new("TextLabel")
+    testTitle.Size=UDim2.new(1,-20,0,22); testTitle.Position=UDim2.fromOffset(12,8)
+    testTitle.BackgroundTransparency=1; testTitle.Text="Test Results"
+    testTitle.TextColor3=Color3.fromRGB(240,240,250); testTitle.Font=Enum.Font.GothamBold
+    testTitle.TextSize=14; testTitle.TextXAlignment=Enum.TextXAlignment.Left
+    testTitle.Parent=rightPanel
+
+    local testLine=Instance.new("Frame")
+    testLine.Size=UDim2.new(1,-24,0,1); testLine.Position=UDim2.fromOffset(12,34)
+    testLine.BackgroundColor3=Color3.fromRGB(40,40,48); testLine.BorderSizePixel=0
+    testLine.Parent=rightPanel
+
+    local testScroll=Instance.new("ScrollingFrame")
+    testScroll.Size=UDim2.new(1,-20,1,-48); testScroll.Position=UDim2.fromOffset(10,42)
+    testScroll.BackgroundTransparency=1; testScroll.BorderSizePixel=0
+    testScroll.ScrollBarThickness=4; testScroll.ScrollBarImageColor3=Color3.fromRGB(80,80,95)
+    testScroll.CanvasSize=UDim2.new(0,0,0,0); testScroll.AutomaticCanvasSize=Enum.AutomaticSize.Y
+    testScroll.Parent=rightPanel
+    local tp=Instance.new("UIPadding",testScroll); tp.PaddingTop=UDim.new(0,2); tp.PaddingLeft=UDim.new(0,2); tp.PaddingRight=UDim.new(0,2)
+    local tl=Instance.new("UIListLayout",testScroll); tl.Padding=UDim.new(0,2); tl.SortOrder=Enum.SortOrder.LayoutOrder
+
+    local TEST_ORDER={"getgenv","gethui","cloneref","protectgui","loadstring","identifyexecutor",
+        "setclipboard","toclipboard","setfpscap","writefile","readfile","isfile","isfolder","makefolder",
+        "listfiles","delfile","delfolder","appendfile","getcustomasset","hookfunction","hookmetamethod",
+        "getnamecallmethod","getrawmetatable","setreadonly","isreadonly","getgc","getnilinstances",
+        "getconnections","getinstances","syn_request","http_request","request","httpget_game","httpget_fn",
+        "firetouchinterest","fireclickdetector","fireproximityprompt","queue_on_teleport","Drawing",
+        "highlight","coregui"}
+
+    for i,key in ipairs(TEST_ORDER) do
+        local okC=CAPS[key]==true
+        local row=Instance.new("Frame")
+        row.Size=UDim2.new(1,0,0,18); row.BackgroundTransparency=1
+        row.LayoutOrder=i; row.Parent=testScroll
+        local dot=Instance.new("Frame")
+        dot.Size=UDim2.fromOffset(6,6); dot.Position=UDim2.new(0,4,0.5,-3)
+        dot.BackgroundColor3=okC and Color3.fromRGB(80,220,120) or Color3.fromRGB(220,80,80)
+        dot.BorderSizePixel=0; dot.Parent=row
+        Instance.new("UICorner",dot).CornerRadius=UDim.new(1,0)
+        local kl=Instance.new("TextLabel")
+        kl.Size=UDim2.new(1,-50,1,0); kl.Position=UDim2.fromOffset(16,0)
+        kl.BackgroundTransparency=1; kl.Text=key
+        kl.TextColor3=okC and Color3.fromRGB(220,220,230) or Color3.fromRGB(150,150,165)
+        kl.Font=Enum.Font.Code; kl.TextSize=11; kl.TextXAlignment=Enum.TextXAlignment.Left
+        kl.TextTruncate=Enum.TextTruncate.AtEnd; kl.Parent=row
+        local sl=Instance.new("TextLabel")
+        sl.Size=UDim2.fromOffset(24,18); sl.Position=UDim2.new(1,-28,0,0)
+        sl.BackgroundTransparency=1; sl.Text=okC and "OK" or "NO"
+        sl.TextColor3=okC and Color3.fromRGB(80,220,120) or Color3.fromRGB(220,80,80)
+        sl.Font=Enum.Font.GothamBold; sl.TextSize=12; sl.Parent=row
+    end
+
+    -- ============================================
+    --                    MAIN
+    -- ============================================
+    local mainTab=addTab("Main","main",2)
+    local mainScroll=Instance.new("ScrollingFrame")
+    mainScroll.Size=UDim2.fromScale(1,1); mainScroll.BackgroundTransparency=1
+    mainScroll.BorderSizePixel=0; mainScroll.ScrollBarThickness=4
+    mainScroll.CanvasSize=UDim2.new(0,0,0,0); mainScroll.AutomaticCanvasSize=Enum.AutomaticSize.Y
+    mainScroll.Parent=mainTab
+    local mp=Instance.new("UIPadding",mainScroll); mp.PaddingTop=UDim.new(0,2); mp.PaddingBottom=UDim.new(0,2)
+    local ml=Instance.new("UIListLayout",mainScroll); ml.Padding=UDim.new(0,6); ml.SortOrder=Enum.SortOrder.LayoutOrder
+
+    -- === PLAYER ===
+    local playerSection = createCollapsible(mainScroll, "Player", 1, false)
+
+    local pToggleFly = createInteractive(playerSection.content, {
+        Text="Fly", Desc="WASD + Space/Shift", Type="toggle", Order=1,
+        OnToggle=function(state) if state then startFly() else stopFly() end end,
+    })
+    createNumberField(playerSection.content, {
+        Text="Fly speed", Default=65, Min=10, Max=500, Order=2,
+        OnChange=function(v) Logic.flySpeed=v end,
+    })
+    local pToggleInfJump = createInteractive(playerSection.content, {
+        Text="Infinite jump", Desc="Repeatable space jump", Type="toggle", Order=3,
+        OnToggle=function(state) if state then startInfJump() else stopInfJump() end end,
+    })
+    createNumberField(playerSection.content, {
+        Text="Jump power", Default=50, Min=1, Max=1000, Order=4,
+        OnChange=function(v)
+            Logic.jumpPower=v
+            local hum=getHumanoid()
+            if hum then pcall(function() hum.UseJumpPower=true; hum.JumpPower=v end) end
+        end,
+    })
+    createNumberField(playerSection.content, {
+        Text="Walk speed", Default=16, Min=1, Max=1000, Order=5,
+        OnChange=function(v)
+            Logic.walkSpeed=v
+            local hum=getHumanoid()
+            if hum then pcall(function() hum.WalkSpeed=v end) end
+        end,
+    })
+    local pToggleNoclip = createInteractive(playerSection.content, {
+        Text="Noclip", Desc="Walk through walls", Type="toggle", Order=6,
+        OnToggle=function(state) if state then startNoclip() else stopNoclip() end end,
+    })
+    createNumberField(playerSection.content, {
+        Text="Spin speed", Default=360, Min=10, Max=5000, Order=7,
+        OnChange=function(v) Logic.spinSpeed=v end,
+    })
+    local pToggleSpin = createInteractive(playerSection.content, {
+        Text="Spin", Desc="Rotate character", Type="toggle", Order=8,
+        OnToggle=function(state) if state then startSpin() else stopSpin() end end,
+    })
+    local pToggleAntisit = createInteractive(playerSection.content, {
+        Text="Antisit", Desc="Prevent sitting", Type="toggle", Order=9,
+        OnToggle=function(state) if state then startAntisit() else stopAntisit() end end,
+    })
+
+    State.mainToggles.fly=pToggleFly
+    State.mainToggles.infJump=pToggleInfJump
+    State.mainToggles.noclip=pToggleNoclip
+    State.mainToggles.spin=pToggleSpin
+    State.mainToggles.antisit=pToggleAntisit
+
+    LocalPlayer.CharacterAdded:Connect(function(char)
+        task.wait(0.5)
+        local hum=char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            pcall(function()
+                hum.WalkSpeed=Logic.walkSpeed
+                hum.UseJumpPower=true
+                hum.JumpPower=Logic.jumpPower
+            end)
+        end
+    end)
+
+    -- === PLAYER TELEPORTS ===
+    local ptSection = createCollapsible(mainScroll, "PlayerTeleports", 2, false)
+    local ptListHolder = Instance.new("Frame")
+    ptListHolder.Size=UDim2.new(1,0,0,0); ptListHolder.AutomaticSize=Enum.AutomaticSize.Y
+    ptListHolder.BackgroundColor3=Color3.fromRGB(20,20,24); ptListHolder.BorderSizePixel=0
+    ptListHolder.LayoutOrder=1; ptListHolder.Parent=ptSection.content
+    Instance.new("UICorner",ptListHolder).CornerRadius=UDim.new(0,4)
+    local ptl=Instance.new("UIListLayout",ptListHolder)
+    ptl.Padding=UDim.new(0,2); ptl.SortOrder=Enum.SortOrder.LayoutOrder
+    local ptp=Instance.new("UIPadding",ptListHolder)
+    ptp.PaddingTop=UDim.new(0,4); ptp.PaddingBottom=UDim.new(0,4)
+    ptp.PaddingLeft=UDim.new(0,4); ptp.PaddingRight=UDim.new(0,4)
+
+    local function refreshPlayerTeleports()
+        for _,c in ipairs(ptListHolder:GetChildren()) do
+            if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end
+        end
+        local myHrp = getHRP()
+        local list = {}
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local dist = myHrp and (hrp.Position - myHrp.Position).Magnitude or 0
+                    table.insert(list, {player=plr, hrp=hrp, dist=dist})
+                end
+            end
+        end
+        table.sort(list, function(a,b) return a.dist < b.dist end)
+
+        if #list == 0 then
+            local empty=Instance.new("TextLabel")
+            empty.Size=UDim2.new(1,0,0,20); empty.BackgroundTransparency=1
+            empty.Text="No other players"; empty.TextColor3=Color3.fromRGB(120,120,135)
+            empty.Font=Enum.Font.Gotham; empty.TextSize=11; empty.LayoutOrder=1
+            empty.Parent=ptListHolder
+            return
+        end
+
+        for i, info in ipairs(list) do
+            local row=Instance.new("TextButton")
+            row.Size=UDim2.new(1,0,0,30); row.BackgroundColor3=Color3.fromRGB(34,34,42)
+            row.BorderSizePixel=0; row.Text=""; row.AutoButtonColor=false
+            row.LayoutOrder=i; row.Parent=ptListHolder
+            Instance.new("UICorner",row).CornerRadius=UDim.new(0,4)
+
+            local lbl=Instance.new("TextLabel")
+            lbl.Size=UDim2.new(1,-80,1,0); lbl.Position=UDim2.fromOffset(10,0)
+            lbl.BackgroundTransparency=1
+            lbl.Text=info.player.DisplayName.." (@"..info.player.Name..")"
+            lbl.TextColor3=Color3.fromRGB(210,210,220); lbl.Font=Enum.Font.Gotham
+            lbl.TextSize=12; lbl.TextXAlignment=Enum.TextXAlignment.Left
+            lbl.TextTruncate=Enum.TextTruncate.AtEnd; lbl.Parent=row
+
+            local distLbl=Instance.new("TextLabel")
+            distLbl.Size=UDim2.new(0,60,1,0)
+            distLbl.Position=UDim2.new(1,-68,0,0)
+            distLbl.BackgroundTransparency=1
+            distLbl.Text=string.format("%d studs", math.floor(info.dist))
+            distLbl.TextColor3=Color3.fromRGB(150,150,165); distLbl.Font=Enum.Font.Gotham
+            distLbl.TextSize=11; distLbl.TextXAlignment=Enum.TextXAlignment.Right
+            distLbl.Parent=row
+
+            row.MouseEnter:Connect(function() row.BackgroundColor3=Color3.fromRGB(48,48,60) end)
+            row.MouseLeave:Connect(function() row.BackgroundColor3=Color3.fromRGB(34,34,42) end)
+            row.MouseButton1Click:Connect(function()
+                local hrp = info.player.Character and info.player.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    teleportTo(hrp.Position)
+                    notify("TP", info.player.DisplayName, Color3.fromRGB(80,200,120))
+                end
+            end)
+        end
+    end
+
+    refreshPlayerTeleports()
+    task.spawn(function()
+        while State.running and gui.Parent do
+            task.wait(5)
+            if ptSection.holder.Parent then refreshPlayerTeleports() end
+        end
+    end)
+
+    -- === CAR ===
+    local carSection = createCollapsible(mainScroll, "Car", 3, false)
+
+    local carSpeedToggle = createInteractive(carSection.content, {
+        Text="Speed swap", Desc="W + faster accel", Type="toggle", Order=1,
+        OnToggle=function(state) if state then startCarSpeed() else stopCarSpeed() end end,
+    })
+    createNumberField(carSection.content, {
+        Text="Max speed", Default=999, Min=50, Max=999, Order=2,
+        OnChange=function(v) Logic.carSpeedMax=v end,
+    })
+    local carFlyToggle = createInteractive(carSection.content, {
+        Text="Car fly", Desc="WASD + Space/Ctrl (leveled)", Type="toggle", Order=3,
+        OnToggle=function(state)
+            if state then
+                startCarFly()
+                if State.mobileBtnUp then State.mobileBtnUp.Visible = true end
+                if State.mobileBtnDown then State.mobileBtnDown.Visible = true end
+            else
+                stopCarFly()
+                if State.mobileBtnUp then State.mobileBtnUp.Visible = false end
+                if State.mobileBtnDown then State.mobileBtnDown.Visible = false end
+            end
+        end,
+    })
+    createNumberField(carSection.content, {
+        Text="Fly speed", Default=80, Min=20, Max=300, Order=4,
+        OnChange=function(v) Logic.carFlySpeed=v end,
+    })
+    local carFlyHoverToggle = createInteractive(carSection.content, {
+        Text="Hover mode", Desc="Hold altitude (Ctrl descends)", Type="toggle", Order=5,
+        OnToggle=function(state) Logic.carFlyHover = state end,
+    })
+    local carNoclipToggle = createInteractive(carSection.content, {
+        Text="Car noclip", Desc="Pass through walls", Type="toggle", Order=6,
+        OnToggle=function(state) if state then startCarNoclip() else stopCarNoclip() end end,
+    })
+    local carFarmToggle = createInteractive(carSection.content, {
+        Text="Auto farm (loop)", Desc="Drive forward on track", Type="toggle", Order=7,
+        OnToggle=function(state)
+            if state then
+                if not getVehicle() then
+                    notify("Car","Get in a car first",Color3.fromRGB(200,80,80))
+                    carFarmToggle.setActive(false); return
+                end
+                startCarFarm()
+            else
+                stopCarFarm()
+            end
+        end,
+    })
+    createNumberField(carSection.content, {
+        Text="Farm speed", Default=320, Min=50, Max=1000, Order=8,
+        OnChange=function(v) Logic.carFarmSpeed=v end,
+    })
+
+    -- Mesh swap
+    local meshRow = Instance.new("Frame")
+    meshRow.Size = UDim2.new(1,0,0,30)
+    meshRow.BackgroundColor3 = Color3.fromRGB(34,34,42)
+    meshRow.BorderSizePixel = 0
+    meshRow.LayoutOrder = 9
+    meshRow.Parent = carSection.content
+    Instance.new("UICorner",meshRow).CornerRadius = UDim.new(0,6)
+
+    local meshLbl = Instance.new("TextLabel")
+    meshLbl.Size = UDim2.new(0.4,0,1,0); meshLbl.Position = UDim2.fromOffset(10,0)
+    meshLbl.BackgroundTransparency = 1
+    meshLbl.Text = "Mesh swap"
+    meshLbl.TextColor3 = Color3.fromRGB(220,220,230)
+    meshLbl.Font = Enum.Font.GothamMedium; meshLbl.TextSize = 13
+    meshLbl.TextXAlignment = Enum.TextXAlignment.Left
+    meshLbl.Parent = meshRow
+
+    local meshInput = Instance.new("TextBox")
+    meshInput.Size = UDim2.new(0.6,-40,1,-6); meshInput.Position = UDim2.new(0.4,-4,0,3)
+    meshInput.BackgroundColor3 = Color3.fromRGB(20,20,26)
+    meshInput.BorderSizePixel = 0
+    meshInput.PlaceholderText = "rbxassetid://..."
+    meshInput.Text = ""
+    meshInput.TextColor3 = Color3.fromRGB(220,220,230)
+    meshInput.Font = Enum.Font.Gotham; meshInput.TextSize = 11
+    meshInput.ClearTextOnFocus = false
+    meshInput.Parent = meshRow
+    Instance.new("UICorner",meshInput).CornerRadius = UDim.new(0,4)
+    local mpad = Instance.new("UIPadding",meshInput)
+    mpad.PaddingLeft = UDim.new(0,6); mpad.PaddingRight = UDim.new(0,6)
+
+    local function parseId(text)
+        text = tostring(text or "")
+        local id = text:match("rbxassetid://(%d+)") or text:match("/asset/(%d+)") or text:match("^%s*(%d+)%s*$")
+        return id and tonumber(id) or nil
+    end
+
+    local meshApplyBtn = Instance.new("TextButton")
+    meshApplyBtn.Size = UDim2.new(1,0,0,26)
+    meshApplyBtn.BackgroundColor3 = Color3.fromRGB(80,180,120)
+    meshApplyBtn.BorderSizePixel = 0
+    meshApplyBtn.Text = "Apply mesh"
+    meshApplyBtn.TextColor3 = Color3.new(1,1,1)
+    meshApplyBtn.Font = Enum.Font.GothamBold; meshApplyBtn.TextSize = 12
+    meshApplyBtn.LayoutOrder = 10
+    meshApplyBtn.Parent = carSection.content
+    Instance.new("UICorner",meshApplyBtn).CornerRadius = UDim.new(0,5)
+
+    local meshRestoreBtn = Instance.new("TextButton")
+    meshRestoreBtn.Size = UDim2.new(1,0,0,26)
+    meshRestoreBtn.BackgroundColor3 = Color3.fromRGB(70,70,80)
+    meshRestoreBtn.BorderSizePixel = 0
+    meshRestoreBtn.Text = "Restore original look"
+    meshRestoreBtn.TextColor3 = Color3.fromRGB(220,220,230)
+    meshRestoreBtn.Font = Enum.Font.GothamMedium; meshRestoreBtn.TextSize = 12
+    meshRestoreBtn.LayoutOrder = 11
+    meshRestoreBtn.Parent = carSection.content
+    Instance.new("UICorner",meshRestoreBtn).CornerRadius = UDim.new(0,5)
+
+    meshApplyBtn.MouseButton1Click:Connect(function()
+        local id = parseId(meshInput.Text)
+        if not id then notify("Mesh","Invalid ID",Color3.fromRGB(200,80,80)); return end
+        if not getVehicle() then notify("Mesh","Get in a car first",Color3.fromRGB(200,80,80)); return end
+        notify("Mesh","Loading "..id.."...",Color3.fromRGB(100,200,255))
+        applyMeshSwap(id)
+    end)
+    meshRestoreBtn.MouseButton1Click:Connect(function()
+        if not getVehicle() then notify("Mesh","Get in a car first",Color3.fromRGB(200,80,80)); return end
+        restoreMesh()
+        notify("Mesh","Restored",Color3.fromRGB(80,200,120))
+    end)
+
+    State.mainToggles.carSpeed=carSpeedToggle
+    State.mainToggles.carFly=carFlyToggle
+    State.mainToggles.carFlyHover=carFlyHoverToggle
+    State.mainToggles.carNoclip=carNoclipToggle
+    State.mainToggles.carFarm=carFarmToggle
+
+    -- === AUTOFARM (new) ===
+    local autofarmSection = createCollapsible(mainScroll, "AutoFarm", 4, false)
+
+    local autoDrivingToggle = createInteractive(autofarmSection.content, {
+        Text="Auto driving", Desc="Loop A <-> B without speed loss", Type="toggle", Order=1,
+        OnToggle=function(state)
+            if state then
+                if not getVehicle() then
+                    notify("AutoFarm","Get in a car first",Color3.fromRGB(200,80,80))
+                    autoDrivingToggle.setActive(false); return
+                end
+                notify("AutoFarm","Teleporting to A...",Color3.fromRGB(100,200,255))
+                startAutoDrive()
+            else
+                stopAutoDrive()
+                notify("AutoFarm","Stopped",Color3.fromRGB(240,200,60))
+            end
+        end,
+    })
+
+    createNumberField(autofarmSection.content, {
+        Text="Drive speed", Default=300, Min=50, Max=1000, Order=2,
+        OnChange=function(v) Logic.autoDriveSpeed=v end,
+    })
+
+    State.mainToggles.autoDriving = autoDrivingToggle
+        -- ============================================
+    --                  VISUALS
+    -- ============================================
+    local visualsTab=addTab("Visuals","visuals",3)
+    local visualsScroll=Instance.new("ScrollingFrame")
+    visualsScroll.Size=UDim2.fromScale(1,1); visualsScroll.BackgroundTransparency=1
+    visualsScroll.BorderSizePixel=0; visualsScroll.ScrollBarThickness=4
+    visualsScroll.CanvasSize=UDim2.new(0,0,0,0); visualsScroll.AutomaticCanvasSize=Enum.AutomaticSize.Y
+    visualsScroll.Parent=visualsTab
+    local vp2=Instance.new("UIPadding",visualsScroll)
+    vp2.PaddingTop=UDim.new(0,2); vp2.PaddingBottom=UDim.new(0,2)
+    local vl=Instance.new("UIListLayout",visualsScroll)
+    vl.Padding=UDim.new(0,6); vl.SortOrder=Enum.SortOrder.LayoutOrder
+
+    -- 1. Fullbright
+    local fbData={active=false,save={}}
+    createInteractive(visualsScroll,{
+        Text="Fullbright", Desc="Max world brightness", Type="toggle", Order=1,
+        OnToggle=function(state)
+            if state then
+                fbData.save.brightness=Lighting.Brightness
+                fbData.save.ambient=Lighting.Ambient
+                fbData.save.outdoor=Lighting.OutdoorAmbient
+                fbData.save.shadows=Lighting.GlobalShadows
+                fbData.save.clock=Lighting.ClockTime
+                Lighting.Brightness=3
+                Lighting.Ambient=Color3.fromRGB(255,255,255)
+                Lighting.OutdoorAmbient=Color3.fromRGB(255,255,255)
+                Lighting.GlobalShadows=false
+                Lighting.ClockTime=12
+                fbData.active=true
+            else
+                if fbData.save.brightness~=nil then
+                    Lighting.Brightness=fbData.save.brightness
+                    Lighting.Ambient=fbData.save.ambient
+                    Lighting.OutdoorAmbient=fbData.save.outdoor
+                    Lighting.GlobalShadows=fbData.save.shadows
+                    Lighting.ClockTime=fbData.save.clock
+                end
+                fbData.active=false
+            end
+        end,
+    })
+
+    -- 2. NoFog
+    local nfData={active=false,atmoStates={},saveFogEnd=nil,saveFogStart=nil}
+    createInteractive(visualsScroll,{
+        Text="NoFog", Desc="Remove fog and atmosphere", Type="toggle", Order=2,
+        OnToggle=function(state)
+            if state then
+                nfData.saveFogEnd=Lighting.FogEnd
+                nfData.saveFogStart=Lighting.FogStart
+                pcall(function()
+                    Lighting.FogEnd=100000000
+                    Lighting.FogStart=100000000
+                end)
+                for _,d in ipairs(Lighting:GetDescendants()) do
+                    if d:IsA("Atmosphere") then
+                        nfData.atmoStates[d]={Density=d.Density,Haze=d.Haze}
+                        d.Density=0; d.Haze=0
+                    end
+                end
+                nfData.active=true
+            else
+                if nfData.saveFogEnd then
+                    pcall(function()
+                        Lighting.FogEnd=nfData.saveFogEnd
+                        Lighting.FogStart=nfData.saveFogStart
+                    end)
+                end
+                for atm,s in pairs(nfData.atmoStates) do
+                    if atm and atm.Parent then atm.Density=s.Density; atm.Haze=s.Haze end
+                end
+                nfData.atmoStates={}; nfData.active=false
+            end
+        end,
+    })
+
+    -- 3. ESP Players
+    local espPlrData={active=false,entries={},conns={},distLoop=nil}
+    local function destroyPlayerEspEntry(entry)
+        if not entry then return end
+        if entry.highlight then pcall(function() entry.highlight:Destroy() end) end
+        if entry.billboard then pcall(function() entry.billboard:Destroy() end) end
+        for _,c in ipairs(entry.conns or {}) do pcall(function() c:Disconnect() end) end
+        entry.conns={}; entry.highlight=nil; entry.billboard=nil
+        entry.nameLabel=nil; entry.hpBar=nil; entry.distLabel=nil
+    end
+    local function createPlayerEspEntry(player)
+        if player==LocalPlayer then return nil end
+        local entry={conns={}}
+        local function buildForCharacter(char)
+            if not char then return end
+            local hrp=char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart",3)
+            local hum=char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid",3)
+            if not hrp or not hum then return end
+            local hl2=Instance.new("Highlight")
+            hl2.Adornee=char; hl2.FillColor=Color3.fromRGB(255,100,100)
+            hl2.OutlineColor=Color3.fromRGB(255,100,100)
+            hl2.FillTransparency=0.5; hl2.OutlineTransparency=0
+            hl2.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
+            hl2.Parent=char; entry.highlight=hl2
+            local bb=Instance.new("BillboardGui")
+            bb.Size=UDim2.new(0,130,0,52); bb.StudsOffset=Vector3.new(0,3.2,0)
+            bb.AlwaysOnTop=true; bb.LightInfluence=0; bb.Adornee=hrp; bb.Parent=hrp
+            entry.billboard=bb
+            local nameLbl2=Instance.new("TextLabel")
+            nameLbl2.Size=UDim2.new(1,0,0,16); nameLbl2.BackgroundTransparency=1
+            nameLbl2.Text=player.DisplayName.." (@"..player.Name..")"
+            nameLbl2.TextColor3=Color3.fromRGB(255,255,255)
+            nameLbl2.TextStrokeTransparency=0
+            nameLbl2.Font=Enum.Font.GothamBold; nameLbl2.TextSize=11
+            nameLbl2.Parent=bb; entry.nameLabel=nameLbl2
+            local hpBg=Instance.new("Frame")
+            hpBg.Size=UDim2.new(1,0,0,6); hpBg.Position=UDim2.new(0,0,0,17)
+            hpBg.BackgroundColor3=Color3.fromRGB(30,30,35); hpBg.BorderSizePixel=0
+            hpBg.Parent=bb
+            Instance.new("UICorner",hpBg).CornerRadius=UDim.new(0,3)
+            local hpBar=Instance.new("Frame")
+            hpBar.Size=UDim2.new(1,0,1,0)
+            hpBar.BackgroundColor3=Color3.fromRGB(80,200,120)
+            hpBar.BorderSizePixel=0; hpBar.Parent=hpBg
+            Instance.new("UICorner",hpBar).CornerRadius=UDim.new(0,3)
+            entry.hpBar=hpBar
+            local distLbl=Instance.new("TextLabel")
+            distLbl.Size=UDim2.new(1,0,0,14); distLbl.Position=UDim2.new(0,0,0,26)
+            distLbl.BackgroundTransparency=1; distLbl.Text="..."
+            distLbl.TextColor3=Color3.fromRGB(220,220,220)
+            distLbl.TextStrokeTransparency=0
+            distLbl.Font=Enum.Font.Gotham; distLbl.TextSize=10
+            distLbl.Parent=bb; entry.distLabel=distLbl
+            local function updateHp()
+                local hp=hum.Health; local maxHp=hum.MaxHealth
+                if maxHp and maxHp>0 then
+                    local pct=math.clamp(hp/maxHp,0,1)
+                    hpBar.Size=UDim2.new(pct,0,1,0)
+                    hpBar.BackgroundColor3=Color3.fromRGB(220,80,80):Lerp(Color3.fromRGB(80,200,120),pct)
+                end
+            end
+            updateHp()
+            table.insert(entry.conns,hum.HealthChanged:Connect(updateHp))
+            table.insert(entry.conns,hum:GetPropertyChangedSignal("MaxHealth"):Connect(updateHp))
+        end
+        local function cleanupCharacter()
+            if entry.highlight then pcall(function() entry.highlight:Destroy() end); entry.highlight=nil end
+            if entry.billboard then pcall(function() entry.billboard:Destroy() end); entry.billboard=nil end
+            entry.nameLabel=nil; entry.hpBar=nil; entry.distLabel=nil
+            for _,c in ipairs(entry.conns or {}) do pcall(function() c:Disconnect() end) end
+            entry.conns={}
+        end
+        if player.Character then buildForCharacter(player.Character) end
+        table.insert(entry.conns,player.CharacterAdded:Connect(function(char)
+            cleanupCharacter(); buildForCharacter(char)
+        end))
+        table.insert(entry.conns,player.CharacterRemoving:Connect(cleanupCharacter))
+        return entry
+    end
+    local function stopPlayerEsp()
+        if espPlrData.distLoop then pcall(function() espPlrData.distLoop:Disconnect() end); espPlrData.distLoop=nil end
+        for _,c in ipairs(espPlrData.conns or {}) do pcall(function() c:Disconnect() end) end
+        espPlrData.conns={}
+        for plr,entry in pairs(espPlrData.entries) do destroyPlayerEspEntry(entry) end
+        espPlrData.entries={}; espPlrData.active=false
+    end
+    local function startPlayerEsp()
+        stopPlayerEsp(); espPlrData.active=true
+        local function addPlayer(plr)
+            if plr==LocalPlayer then return end
+            if espPlrData.entries[plr] then return end
+            local e=createPlayerEspEntry(plr)
+            if e then espPlrData.entries[plr]=e end
+        end
+        for _,plr in ipairs(Players:GetPlayers()) do addPlayer(plr) end
+        table.insert(espPlrData.conns,Players.PlayerAdded:Connect(function(plr)
+            if espPlrData.active then addPlayer(plr) end
+        end))
+        table.insert(espPlrData.conns,Players.PlayerRemoving:Connect(function(plr)
+            local e=espPlrData.entries[plr]
+            if e then destroyPlayerEspEntry(e); espPlrData.entries[plr]=nil end
+        end))
+        espPlrData.distLoop=RunService.Heartbeat:Connect(function()
+            local myHrp=getHRP(); if not myHrp then return end
+            for _,entry in pairs(espPlrData.entries) do
+                if entry.distLabel and entry.billboard and entry.billboard.Adornee then
+                    local ad=entry.billboard.Adornee
+                    if ad.Parent then
+                        local d=(ad.Position-myHrp.Position).Magnitude
+                        entry.distLabel.Text=string.format("[%d studs]",math.floor(d))
+                    end
+                end
+            end
+        end)
+    end
+    createInteractive(visualsScroll,{
+        Text="ESP Players", Desc="Name, HP bar, distance", Type="toggle", Order=3,
+        OnToggle=function(state) if state then startPlayerEsp() else stopPlayerEsp() end end,
+    })
+
+    -- 4. Shaders
+    local shaderData={active=false,effects={}}
+    createInteractive(visualsScroll,{
+        Text="Shaders", Desc="Bloom + CC + SunRays", Type="toggle", Order=4,
+        OnToggle=function(state)
+            if state then
+                if shaderData.active then return end
+                local cc=Instance.new("ColorCorrectionEffect")
+                cc.Brightness=0.05; cc.Contrast=0.12; cc.Saturation=0.25
+                cc.TintColor=Color3.fromRGB(255,245,235); cc.Parent=Lighting
+                table.insert(shaderData.effects,cc)
+                local bloom=Instance.new("BloomEffect")
+                bloom.Intensity=0.5; bloom.Size=24; bloom.Threshold=0.85
+                bloom.Parent=Lighting; table.insert(shaderData.effects,bloom)
+                local rays=Instance.new("SunRaysEffect")
+                rays.Intensity=0.05; rays.Spread=0.8
+                rays.Parent=Lighting; table.insert(shaderData.effects,rays)
+                shaderData.active=true
+            else
+                for _,e in ipairs(shaderData.effects) do pcall(function() e:Destroy() end) end
+                shaderData.effects={}; shaderData.active=false
+            end
+        end,
+    })
+
+    -- 5. FPS Boost
+    local fpsBoostData={active=false, disabled={}, saved={}}
+    local function restoreFpsBoost()
+        if fpsBoostData.saved.globalShadows~=nil then
+            pcall(function() Lighting.GlobalShadows=fpsBoostData.saved.globalShadows end)
+        end
+        if fpsBoostData.saved.shadowSoftness~=nil then
+            pcall(function() Lighting.ShadowSoftness=fpsBoostData.saved.shadowSoftness end)
+        end
+        for _,entry in ipairs(fpsBoostData.disabled) do
+            local obj=entry.obj
+            if obj and obj.Parent then pcall(function() obj[entry.prop]=entry.old end) end
+        end
+        fpsBoostData.disabled={}; fpsBoostData.active=false
+    end
+    createInteractive(visualsScroll,{
+        Text="FPS Boost", Desc="Shadows/effects off", Type="toggle", Order=5,
+        OnToggle=function(state)
+            if state then
+                if fpsBoostData.active then return end
+                fpsBoostData.active=true
+                fpsBoostData.saved.globalShadows=Lighting.GlobalShadows
+                pcall(function() Lighting.GlobalShadows=false end)
+                pcall(function()
+                    fpsBoostData.saved.shadowSoftness=Lighting.ShadowSoftness
+                    Lighting.ShadowSoftness=0
+                end)
+                for _,obj in ipairs(workspace:GetDescendants()) do
+                    if obj:IsA("ParticleEmitter") or obj:IsA("Beam") or obj:IsA("Trail")
+                    or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
+                        if obj.Enabled then
+                            table.insert(fpsBoostData.disabled,{obj=obj,prop="Enabled",old=true})
+                            pcall(function() obj.Enabled=false end)
+                        end
+                    elseif obj:IsA("BasePart") then
+                        if obj.CastShadow then
+                            table.insert(fpsBoostData.disabled,{obj=obj,prop="CastShadow",old=true})
+                            pcall(function() obj.CastShadow=false end)
+                        end
+                    end
+                end
+                notify("Visuals","FPS Boost ON",Color3.fromRGB(80,200,120))
+            else
+                restoreFpsBoost()
+                notify("Visuals","FPS Boost OFF",Color3.fromRGB(240,200,60))
+            end
+        end,
+    })
+
+    -- === SpeedCameras ===
+    local camSection = createCollapsible(visualsScroll, "SpeedCameras", 6, false)
+    local camListHolder = Instance.new("Frame")
+    camListHolder.Size=UDim2.new(1,0,0,0); camListHolder.AutomaticSize=Enum.AutomaticSize.Y
+    camListHolder.BackgroundColor3=Color3.fromRGB(20,20,24); camListHolder.BorderSizePixel=0
+    camListHolder.LayoutOrder=2; camListHolder.Parent=camSection.content
+    Instance.new("UICorner",camListHolder).CornerRadius=UDim.new(0,4)
+    local cml=Instance.new("UIListLayout",camListHolder)
+    cml.Padding=UDim.new(0,2); cml.SortOrder=Enum.SortOrder.LayoutOrder
+    local cmp=Instance.new("UIPadding",camListHolder)
+    cmp.PaddingTop=UDim.new(0,4); cmp.PaddingBottom=UDim.new(0,4)
+    cmp.PaddingLeft=UDim.new(0,4); cmp.PaddingRight=UDim.new(0,4)
+
+    State.espHandles["speedcams"] = { highlights = {}, conns = {} }
+    local function getSpeedCamFolder()
+        return workspace:FindFirstChild("SpeedCameras")
+    end
+    local function refreshSpeedCamList()
+        for _,c in ipairs(camListHolder:GetChildren()) do
+            if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end
+        end
+        local folder = getSpeedCamFolder()
+        if not folder then
+            local empty=Instance.new("TextLabel")
+            empty.Size=UDim2.new(1,0,0,20); empty.BackgroundTransparency=1
+            empty.Text="SpeedCameras folder not found"; empty.TextColor3=Color3.fromRGB(120,120,135)
+            empty.Font=Enum.Font.Gotham; empty.TextSize=11; empty.LayoutOrder=1
+            empty.Parent=camListHolder; return
+        end
+        local list = {}
+        for _,c in ipairs(folder:GetChildren()) do
+            if c:IsA("Model") or c:IsA("BasePart") then
+                table.insert(list, c)
+            end
+        end
+        table.sort(list, function(a,b) return a.Name < b.Name end)
+        if #list == 0 then
+            local empty=Instance.new("TextLabel")
+            empty.Size=UDim2.new(1,0,0,20); empty.BackgroundTransparency=1
+            empty.Text="No cameras in folder"; empty.TextColor3=Color3.fromRGB(120,120,135)
+            empty.Font=Enum.Font.Gotham; empty.TextSize=11; empty.LayoutOrder=1
+            empty.Parent=camListHolder; return
+        end
+        for i, obj in ipairs(list) do
+            local row=Instance.new("TextButton")
+            row.Size=UDim2.new(1,0,0,26); row.BackgroundColor3=Color3.fromRGB(34,34,42)
+            row.BorderSizePixel=0; row.Text=""; row.AutoButtonColor=false
+            row.LayoutOrder=i; row.Parent=camListHolder
+            Instance.new("UICorner",row).CornerRadius=UDim.new(0,4)
+            local lbl=Instance.new("TextLabel")
+            lbl.Size=UDim2.new(1,-12,1,0); lbl.Position=UDim2.fromOffset(10,0)
+            lbl.BackgroundTransparency=1; lbl.Text=obj.Name
+            lbl.TextColor3=Color3.fromRGB(210,210,220); lbl.Font=Enum.Font.Gotham
+            lbl.TextSize=12; lbl.TextXAlignment=Enum.TextXAlignment.Left
+            lbl.TextTruncate=Enum.TextTruncate.AtEnd; lbl.Parent=row
+            row.MouseEnter:Connect(function() row.BackgroundColor3=Color3.fromRGB(48,48,60) end)
+            row.MouseLeave:Connect(function() row.BackgroundColor3=Color3.fromRGB(34,34,42) end)
+            row.MouseButton1Click:Connect(function()
+                local pos=getPosition(obj)
+                if pos then
+                    teleportTo(pos)
+                    notify("TP", obj.Name, Color3.fromRGB(80,200,120))
+                end
+            end)
+        end
+    end
+    createInteractive(camSection.content,{
+        Text="ESP on speed cameras", Desc="Highlight cameras", Type="toggle", Order=1,
+        OnToggle=function(state)
+            clearEspFor("speedcams")
+            if not state then return end
+            local folder = getSpeedCamFolder()
+            if not folder then
+                notify("ESP","SpeedCameras folder not found",Color3.fromRGB(200,80,80)); return
+            end
+            for _,c in ipairs(folder:GetChildren()) do
+                if c:IsA("Model") or c:IsA("BasePart") then
+                    local h2=createEspForObject(c,"speedcams",Color3.fromRGB(255,60,60))
+                    if h2 then State.espHandles["speedcams"].highlights[c]=h2 end
+                end
+            end
+        end,
+    })
+    refreshSpeedCamList()
+    task.spawn(function()
+        while State.running and gui.Parent do
+            task.wait(5)
+            if camSection.holder.Parent then refreshSpeedCamList() end
+        end
+    end)
+
+    -- === HUD ===
+    local hudData={active=false,gui=nil,conn=nil,fpsCounter=0,fpsTime=0}
+    local function stopHud()
+        if hudData.conn then pcall(function() hudData.conn:Disconnect() end); hudData.conn=nil end
+        if hudData.gui then pcall(function() hudData.gui:Destroy() end); hudData.gui=nil end
+        hudData.active=false
+    end
+    local function startHud()
+        if hudData.active then return end
+        hudData.active=true
+        hudData.fpsCounter=0; hudData.fpsTime=0
+        local guiH=Instance.new("ScreenGui")
+        guiH.Name="KotostHUD_"..tostring(math.random(1,1e6))
+        guiH.ResetOnSpawn=false; guiH.IgnoreGuiInset=true
+        guiH.DisplayOrder=999998; guiH.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
+        if CAPS.protectgui then pcall(protectgui,guiH) end
+        local okH=pcall(function() guiH.Parent=GuiParent end)
+        if not okH or not guiH.Parent then guiH.Parent=PlayerGui end
+        hudData.gui=guiH
+        local bar=Instance.new("Frame")
+        bar.Size=UDim2.fromOffset(500,30)
+        bar.AnchorPoint=Vector2.new(0.5,1)
+        bar.Position=UDim2.new(0.5,0,1,-60)
+        bar.BackgroundColor3=Color3.fromRGB(0,0,0); bar.BackgroundTransparency=0.45
+        bar.BorderSizePixel=0; bar.Parent=guiH
+        Instance.new("UICorner",bar).CornerRadius=UDim.new(0,8)
+        local stroke=Instance.new("UIStroke",bar)
+        stroke.Color=Color3.fromRGB(60,60,70); stroke.Thickness=1
+        local logo=Instance.new("ImageLabel")
+        logo.Size=UDim2.fromOffset(20,20); logo.Position=UDim2.fromOffset(8,5)
+        logo.BackgroundTransparency=1; logo.Image="rbxassetid://77128719632427"
+        logo.ScaleType=Enum.ScaleType.Fit; logo.Parent=bar
+        local title=Instance.new("TextLabel")
+        title.Size=UDim2.fromOffset(110,30); title.Position=UDim2.fromOffset(34,0)
+        title.BackgroundTransparency=1; title.Text="kotost games hub"
+        title.TextColor3=Color3.fromRGB(220,220,235)
+        title.Font=Enum.Font.GothamBold; title.TextSize=12
+        title.TextXAlignment=Enum.TextXAlignment.Left
+        title.TextTruncate=Enum.TextTruncate.AtEnd; title.Parent=bar
+        local fpsLbl=Instance.new("TextLabel")
+        fpsLbl.Size=UDim2.fromOffset(70,30); fpsLbl.Position=UDim2.new(1,-290,0,0)
+        fpsLbl.BackgroundTransparency=1; fpsLbl.Text="FPS: -"
+        fpsLbl.TextColor3=Color3.fromRGB(180,220,180)
+        fpsLbl.Font=Enum.Font.GothamMedium; fpsLbl.TextSize=11
+        fpsLbl.TextXAlignment=Enum.TextXAlignment.Left; fpsLbl.Parent=bar
+        local pingLbl=Instance.new("TextLabel")
+        pingLbl.Size=UDim2.fromOffset(80,30); pingLbl.Position=UDim2.new(1,-210,0,0)
+        pingLbl.BackgroundTransparency=1; pingLbl.Text="Ping: -"
+        pingLbl.TextColor3=Color3.fromRGB(180,200,235)
+        pingLbl.Font=Enum.Font.GothamMedium; pingLbl.TextSize=11
+        pingLbl.TextXAlignment=Enum.TextXAlignment.Left; pingLbl.Parent=bar
+        local nickLbl=Instance.new("TextLabel")
+        nickLbl.Size=UDim2.fromOffset(130,30); nickLbl.Position=UDim2.new(1,-130,0,0)
+        nickLbl.BackgroundTransparency=1
+        nickLbl.Text=LocalPlayer.DisplayName or LocalPlayer.Name
+        nickLbl.TextColor3=Color3.fromRGB(235,235,245)
+        nickLbl.Font=Enum.Font.GothamBold; nickLbl.TextSize=11
+        nickLbl.TextXAlignment=Enum.TextXAlignment.Right
+        nickLbl.TextTruncate=Enum.TextTruncate.AtEnd; nickLbl.Parent=bar
+        local padding=Instance.new("UIPadding",nickLbl)
+        padding.PaddingRight=UDim.new(0,8)
+        hudData.conn=RunService.Heartbeat:Connect(function(dt)
+            hudData.fpsCounter=hudData.fpsCounter+1
+            hudData.fpsTime=hudData.fpsTime+dt
+            if hudData.fpsTime>=1 then
+                local fps=math.floor(hudData.fpsCounter/hudData.fpsTime+0.5)
+                fpsLbl.Text="FPS: "..tostring(fps)
+                hudData.fpsCounter=0; hudData.fpsTime=0
+                local p=getPing()
+                pingLbl.Text=p>=0 and ("Ping: "..tostring(p).."ms") or "Ping: N/A"
+            end
+        end)
+    end
+    createInteractive(visualsScroll,{
+        Text="HUD", Desc="Bottom bar: logo, FPS, ping, nick", Type="toggle", Order=7,
+        OnToggle=function(state) if state then startHud() else stopHud() end end,
+    })
+        -- ============================================
+    --                    RACE
+    -- ============================================
+    local raceTab = addTab("Race", "race", 4)
+    local raceScroll = Instance.new("ScrollingFrame")
+    raceScroll.Size = UDim2.fromScale(1,1); raceScroll.BackgroundTransparency = 1
+    raceScroll.BorderSizePixel = 0; raceScroll.ScrollBarThickness = 4
+    raceScroll.CanvasSize = UDim2.new(0,0,0,0); raceScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    raceScroll.Parent = raceTab
+    local rp = Instance.new("UIPadding", raceScroll)
+    rp.PaddingTop = UDim.new(0,2); rp.PaddingBottom = UDim.new(0,2)
+    local rl = Instance.new("UIListLayout", raceScroll)
+    rl.Padding = UDim.new(0,6); rl.SortOrder = Enum.SortOrder.LayoutOrder
+
+    -- Helper: Race mode row (Fly / TP)
+    local function makeRaceModeRow(parent, order)
+        local holder = Instance.new("Frame")
+        holder.Size = UDim2.new(1,0,0,30)
+        holder.BackgroundTransparency = 1
+        holder.LayoutOrder = order
+        holder.Parent = parent
+
+        local mode = "tp"
+        local flyBtn = Instance.new("TextButton")
+        flyBtn.Size = UDim2.new(0.5,-3,1,0)
+        flyBtn.BackgroundColor3 = Color3.fromRGB(50,50,62)
+        flyBtn.BorderSizePixel = 0; flyBtn.Text = "Fly"
+        flyBtn.TextColor3 = Color3.fromRGB(220,220,230)
+        flyBtn.Font = Enum.Font.GothamBold; flyBtn.TextSize = 12
+        flyBtn.Parent = holder
+        Instance.new("UICorner",flyBtn).CornerRadius = UDim.new(0,5)
+
+        local tpBtn = Instance.new("TextButton")
+        tpBtn.Size = UDim2.new(0.5,-3,1,0)
+        tpBtn.Position = UDim2.new(0.5,3,0,0)
+        tpBtn.BackgroundColor3 = Color3.fromRGB(80,200,120)
+        tpBtn.BorderSizePixel = 0; tpBtn.Text = "TP"
+        tpBtn.TextColor3 = Color3.fromRGB(15,15,20)
+        tpBtn.Font = Enum.Font.GothamBold; tpBtn.TextSize = 12
+        tpBtn.Parent = holder
+        Instance.new("UICorner",tpBtn).CornerRadius = UDim.new(0,5)
+
+        local function render()
+            if mode=="fly" then
+                flyBtn.BackgroundColor3=Color3.fromRGB(80,200,120)
+                flyBtn.TextColor3=Color3.fromRGB(15,15,20)
+                tpBtn.BackgroundColor3=Color3.fromRGB(50,50,62)
+                tpBtn.TextColor3=Color3.fromRGB(220,220,230)
+            else
+                tpBtn.BackgroundColor3=Color3.fromRGB(80,200,120)
+                tpBtn.TextColor3=Color3.fromRGB(15,15,20)
+                flyBtn.BackgroundColor3=Color3.fromRGB(50,50,62)
+                flyBtn.TextColor3=Color3.fromRGB(220,220,230)
+            end
+        end
+        flyBtn.MouseButton1Click:Connect(function() mode="fly"; render() end)
+        tpBtn.MouseButton1Click:Connect(function() mode="tp"; render() end)
+        render()
+        return { get = function() return mode end }
+    end
+
+    -- Generic race runner: loops through points with 3s delay (TP mode)
+    local function runRaceLoop(points, modeRef, speedRef, counterLabel, getActive)
+        task.spawn(function()
+            local lap = 0
+            while getActive() do
+                lap = lap + 1
+                for i, point in ipairs(points) do
+                    if not getActive() then break end
+                    counterLabel.Text = string.format("Lap: %d | Point: %d/%d", lap, i, #points)
+                    if modeRef.get() == "tp" then
+                        -- slight Y offset so we don't get stuck in the ground
+                        local target = point + Vector3.new(0, 6, 0)
+                        local hrp = getHRP()
+                        if hrp then
+                            pcall(function() hrp.CFrame = CFrame.new(target) end)
+                        end
+                        task.wait(3)
+                    else
+                        local hrp = getHRP()
+                        if hrp then
+                            local speed = speedRef.value or 120
+                            while getActive() do
+                                local h2 = getHRP(); if not h2 then break end
+                                local diff = point - h2.Position
+                                local dist = diff.Magnitude
+                                if dist < 3 then break end
+                                local step = math.min(speed / 60, dist)
+                                pcall(function()
+                                    h2.CFrame = CFrame.new(h2.Position + diff.Unit * step)
+                                end)
+                                task.wait()
+                            end
+                        end
+                        task.wait(0.1)
+                    end
+                end
+            end
+            counterLabel.Text = "Lap: 0 | Point: 0/0"
+        end)
+    end
+
+    -- === 1. Halloween Race ===
+    local halloweenRace = createCollapsible(raceScroll, "Halloween Race", 1, false)
+    local hallMode = makeRaceModeRow(halloweenRace.content, 1)
+    local hallSpeedRef = { value = 120 }
+    createNumberField(halloweenRace.content, {
+        Text = "Fly speed", Default = 120, Min = 20, Max = 500, Order = 2,
+        OnChange = function(v) hallSpeedRef.value = v end,
+    })
+
+    local HALLOWEEN_POINTS = {
+        Vector3.new(-18, 846, -306),
+        Vector3.new(6, 846, -497),
+        Vector3.new(-97, 846, -737),
+        Vector3.new(-352, 846, -687),
+        Vector3.new(-662, 799, -1066),
+        Vector3.new(-879, 794, -950),
+        Vector3.new(-749, 749, -507),
+        Vector3.new(386, 846, 30),
+        Vector3.new(327, 846, -169),
+    }
+
+    local hallCounter = Instance.new("TextLabel")
+    hallCounter.Size = UDim2.new(1,0,0,20); hallCounter.BackgroundTransparency = 1
+    hallCounter.Text = "Lap: 0 | Point: 0/"..#HALLOWEEN_POINTS
+    hallCounter.TextColor3 = Color3.fromRGB(200,200,215)
+    hallCounter.Font = Enum.Font.Gotham; hallCounter.TextSize = 12
+    hallCounter.LayoutOrder = 10; hallCounter.Parent = halloweenRace.content
+
+    local hallActive = false
+    local hallToggle
+    hallToggle = createInteractive(halloweenRace.content, {
+        Text = "Start Halloween Race", Desc = "Loops until disabled", Type = "toggle", Order = 3,
+        OnToggle = function(state)
+            if not state then
+                hallActive = false
+                stopCarNoclip()
+                hallCounter.Text = "Lap: 0 | Point: 0/"..#HALLOWEEN_POINTS
+                return
+            end
+            hallActive = true
+            startCarNoclip()
+            runRaceLoop(HALLOWEEN_POINTS, hallMode, hallSpeedRef, hallCounter, function() return hallActive end)
+        end,
+    })
+
+    -- === 2. Halloween Museum Race ===
+    local museumRace = createCollapsible(raceScroll, "Halloween Museum Race", 2, false)
+    local museumMode = makeRaceModeRow(museumRace.content, 1)
+    local museumSpeedRef = { value = 120 }
+    createNumberField(museumRace.content, {
+        Text = "Fly speed", Default = 120, Min = 20, Max = 500, Order = 2,
+        OnChange = function(v) museumSpeedRef.value = v end,
+    })
+
+    local MUSEUM_POINTS = {
+        Vector3.new(-2158, 603, 3998),
+        Vector3.new(-2158, 533, 3624),
+        Vector3.new(-2325, 533, 3347),
+        Vector3.new(-2710, 533, 3279),
+        Vector3.new(-2808, 533, 3086),
+        Vector3.new(-2812, 533, 2654),
+        Vector3.new(-3044, 533, 2431),
+        Vector3.new(-3159, 532, 2112),
+        Vector3.new(-2850, 533, 2051),
+        Vector3.new(-2781, 533, 1648),
+        Vector3.new(-2523, 533, 1518),
+        Vector3.new(-2423, 533, 1820),
+        Vector3.new(-2710, 533, 2444),
+        Vector3.new(-2611, 538, 2730),
+        Vector3.new(-2483, 533, 2882),
+        Vector3.new(-2641, 533, 3040),
+        Vector3.new(-2278, 533, 3149),
+        Vector3.new(-1971, 533, 3326),
+        Vector3.new(-1961, 539, 3691),
+        Vector3.new(-1969, 603, 4023),
+        Vector3.new(-2158, 603, 3962),
+    }
+
+    local museumCounter = Instance.new("TextLabel")
+    museumCounter.Size = UDim2.new(1,0,0,20); museumCounter.BackgroundTransparency = 1
+    museumCounter.Text = "Lap: 0 | Point: 0/"..#MUSEUM_POINTS
+    museumCounter.TextColor3 = Color3.fromRGB(200,200,215)
+    museumCounter.Font = Enum.Font.Gotham; museumCounter.TextSize = 12
+    museumCounter.LayoutOrder = 10; museumCounter.Parent = museumRace.content
+
+    local museumActive = false
+    local museumToggle
+    museumToggle = createInteractive(museumRace.content, {
+        Text = "Start Museum Race", Desc = "Loops until disabled", Type = "toggle", Order = 3,
+        OnToggle = function(state)
+            if not state then
+                museumActive = false
+                stopCarNoclip()
+                museumCounter.Text = "Lap: 0 | Point: 0/"..#MUSEUM_POINTS
+                return
+            end
+            museumActive = true
+            startCarNoclip()
+            runRaceLoop(MUSEUM_POINTS, museumMode, museumSpeedRef, museumCounter, function() return museumActive end)
+        end,
+    })
+
+    -- === 3. Desert Race ===
+    local desertRace = createCollapsible(raceScroll, "Desert Race", 3, false)
+    local desertMode = makeRaceModeRow(desertRace.content, 1)
+    local desertSpeedRef = { value = 120 }
+    createNumberField(desertRace.content, {
+        Text = "Fly speed", Default = 120, Min = 20, Max = 500, Order = 2,
+        OnChange = function(v) desertSpeedRef.value = v end,
+    })
+
+    local DESERT_POINTS = {
+        Vector3.new(31, 604, 2161),
+        Vector3.new(190, 603, 2435),
+        Vector3.new(290, 603, 2841),
+        Vector3.new(206, 604, 3459),
+        Vector3.new(313, 604, 3978),
+        Vector3.new(158, 604, 4515),
+        Vector3.new(-8, 604, 4898),
+        Vector3.new(428, 614, 5147),
+        Vector3.new(1304, 615, 5380),
+        Vector3.new(1807, 653, 5291),
+        Vector3.new(1623, 623, 4956),
+        Vector3.new(1858, 604, 4576),
+        Vector3.new(2171, 604, 3804),
+        Vector3.new(2178, 603, 3011),
+        Vector3.new(1870, 604, 2743),
+        Vector3.new(1673, 610, 2047),
+        Vector3.new(1609, 604, 1326),
+        Vector3.new(1239, 613, 821),
+        Vector3.new(795, 603, 1062),
+        Vector3.new(351, 603, 1517),
+    }
+
+    local desertCounter = Instance.new("TextLabel")
+    desertCounter.Size = UDim2.new(1,0,0,20); desertCounter.BackgroundTransparency = 1
+    desertCounter.Text = "Lap: 0 | Point: 0/"..#DESERT_POINTS
+    desertCounter.TextColor3 = Color3.fromRGB(200,200,215)
+    desertCounter.Font = Enum.Font.Gotham; desertCounter.TextSize = 12
+    desertCounter.LayoutOrder = 10; desertCounter.Parent = desertRace.content
+
+    local desertActive = false
+    local desertToggle
+    desertToggle = createInteractive(desertRace.content, {
+        Text = "Start Desert Race", Desc = "Loops until disabled", Type = "toggle", Order = 3,
+        OnToggle = function(state)
+            if not state then
+                desertActive = false
+                stopCarNoclip()
+                desertCounter.Text = "Lap: 0 | Point: 0/"..#DESERT_POINTS
+                return
+            end
+            desertActive = true
+            startCarNoclip()
+            runRaceLoop(DESERT_POINTS, desertMode, desertSpeedRef, desertCounter, function() return desertActive end)
+        end,
+    })
+
+    -- ============================================
+    --                    CONFIG
+    -- ============================================
+    local configTab=addTab("Config","config",5)
+    local configScroll=Instance.new("ScrollingFrame")
+    configScroll.Size=UDim2.fromScale(1,1); configScroll.BackgroundTransparency=1
+    configScroll.BorderSizePixel=0; configScroll.ScrollBarThickness=4
+    configScroll.CanvasSize=UDim2.new(0,0,0,0); configScroll.AutomaticCanvasSize=Enum.AutomaticSize.Y
+    configScroll.Parent=configTab
+    local cfp=Instance.new("UIPadding",configScroll); cfp.PaddingTop=UDim.new(0,2); cfp.PaddingBottom=UDim.new(0,2)
+    local cfl=Instance.new("UIListLayout",configScroll); cfl.Padding=UDim.new(0,4); cfl.SortOrder=Enum.SortOrder.LayoutOrder
+
+    local function serializeConfig()
+        local parts={}
+        for k,v in pairs(State.settings) do
+            if type(v)=="boolean" or type(v)=="number" or type(v)=="string" then
+                table.insert(parts,string.format("%s=%s",tostring(k),tostring(v)))
+            end
+        end
+        return table.concat(parts,"\n")
+    end
+    local function deserializeConfig(text)
+        local data={}
+        for line in text:gmatch("[^\r\n]+") do
+            local k,v=line:match("^([^=]+)=(.*)$")
+            if k and v then
+                if v=="true" then v=true
+                elseif v=="false" then v=false
+                else
+                    local n=tonumber(v); if n then v=n end
+                end
+                data[k]=v
+            end
+        end
+        return data
+    end
+
+    local configNameBox=Instance.new("TextBox")
+    configNameBox.Size=UDim2.new(1,0,0,30)
+    configNameBox.BackgroundColor3=Color3.fromRGB(34,34,42)
+    configNameBox.BorderSizePixel=0
+    configNameBox.PlaceholderText="Config name (e.g. default)"
+    configNameBox.Text="default"
+    configNameBox.TextColor3=Color3.fromRGB(220,220,230)
+    configNameBox.Font=Enum.Font.Gotham; configNameBox.TextSize=12
+    configNameBox.PlaceholderColor3=Color3.fromRGB(120,120,135)
+    configNameBox.LayoutOrder=1; configNameBox.Parent=configScroll
+    Instance.new("UICorner",configNameBox).CornerRadius=UDim.new(0,6)
+    local cpb=Instance.new("UIPadding",configNameBox)
+    cpb.PaddingLeft=UDim.new(0,10); cpb.PaddingRight=UDim.new(0,10)
+
+    createInteractive(configScroll,{
+        Text="Save config", Desc="KotostHub/Configs/<name>.cfg",
+        Requires={"writefile"}, Order=2,
+        OnClick=function()
+            local name=configNameBox.Text:gsub("[^%w_%-]","")
+            if #name==0 then notify("Config","Enter name",Color3.fromRGB(200,80,80)); return end
+            ensureFolders()
+            local path=FOLDER_CONFIG.."/"..name..".cfg"
+            local okS,err=pcall(writefile,path,serializeConfig())
+            if okS then notify("Config","Saved: "..name,Color3.fromRGB(80,200,120))
+            else notify("Config","Err: "..tostring(err),Color3.fromRGB(200,80,80)) end
+        end,
+    })
+    createInteractive(configScroll,{
+        Text="Load config", Desc="Load from KotostHub/Configs",
+        Requires={"readfile","isfile"}, Order=3,
+        OnClick=function()
+            local name=configNameBox.Text:gsub("[^%w_%-]","")
+            if #name==0 then notify("Config","Enter name",Color3.fromRGB(200,80,80)); return end
+            local path=FOLDER_CONFIG.."/"..name..".cfg"
+            if not isfile(path) then notify("Config","Not found: "..name,Color3.fromRGB(200,80,80)); return end
+            local okR,content=pcall(readfile,path)
+            if okR and content then
+                for k,v in pairs(deserializeConfig(content)) do State.settings[k]=v end
+                notify("Config","Loaded: "..name,Color3.fromRGB(80,200,120))
+            else notify("Config","Read error",Color3.fromRGB(200,80,80)) end
+        end,
+    })
+    createInteractive(configScroll,{
+        Text="Delete config", Desc="Delete file",
+        Requires={"delfile","isfile"}, Order=4,
+        OnClick=function()
+            local name=configNameBox.Text:gsub("[^%w_%-]","")
+            if #name==0 then return end
+            local path=FOLDER_CONFIG.."/"..name..".cfg"
+            if not isfile(path) then notify("Config","Not found",Color3.fromRGB(200,80,80)); return end
+            pcall(delfile,path)
+            notify("Config","Deleted: "..name,Color3.fromRGB(240,200,60))
+        end,
+    })
+    createInteractive(configScroll,{
+        Text="List configs", Desc="Show files in folder",
+        Requires={"listfiles"}, Order=5,
+        OnClick=function()
+            ensureFolders()
+            local okL,list=pcall(listfiles,FOLDER_CONFIG)
+            if okL and list then
+                local names={}
+                for _,f in ipairs(list) do
+                    local n=f:match("([^/\\]+)%.cfg$")
+                    if n then table.insert(names,n) end
+                end
+                notify("Config","Found: "..#names,Color3.fromRGB(100,200,255))
+            end
+        end,
+    })
+        -- ============================================
+    --                    EVENT
+    -- ============================================
+    local eventTab=addTab("Event","event",6)
+    local eventScroll=Instance.new("ScrollingFrame")
+    eventScroll.Size=UDim2.fromScale(1,1); eventScroll.BackgroundTransparency=1
+    eventScroll.BorderSizePixel=0; eventScroll.ScrollBarThickness=4
+    eventScroll.CanvasSize=UDim2.new(0,0,0,0); eventScroll.AutomaticCanvasSize=Enum.AutomaticSize.Y
+    eventScroll.Parent=eventTab
+    local ep=Instance.new("UIPadding",eventScroll); ep.PaddingTop=UDim.new(0,2); ep.PaddingBottom=UDim.new(0,2)
+    local el=Instance.new("UIListLayout",eventScroll); el.Padding=UDim.new(0,6); el.SortOrder=Enum.SortOrder.LayoutOrder
+
+    -- Helper: farm-mode row (Fly / TP)
+    local function makeFarmModeRow(parent, order)
+        local holder = Instance.new("Frame")
+        holder.Size = UDim2.new(1,0,0,30)
+        holder.BackgroundTransparency = 1
+        holder.LayoutOrder = order
+        holder.Parent = parent
+
+        local mode = "fly"
+        local flyBtn = Instance.new("TextButton")
+        flyBtn.Size = UDim2.new(0.5,-3,1,0)
+        flyBtn.BackgroundColor3 = Color3.fromRGB(80,200,120)
+        flyBtn.BorderSizePixel = 0; flyBtn.Text = "Fly"
+        flyBtn.TextColor3 = Color3.fromRGB(15,15,20)
+        flyBtn.Font = Enum.Font.GothamBold; flyBtn.TextSize = 12
+        flyBtn.Parent = holder
+        Instance.new("UICorner",flyBtn).CornerRadius = UDim.new(0,5)
+
+        local tpBtn = Instance.new("TextButton")
+        tpBtn.Size = UDim2.new(0.5,-3,1,0)
+        tpBtn.Position = UDim2.new(0.5,3,0,0)
+        tpBtn.BackgroundColor3 = Color3.fromRGB(50,50,62)
+        tpBtn.BorderSizePixel = 0; tpBtn.Text = "TP"
+        tpBtn.TextColor3 = Color3.fromRGB(220,220,230)
+        tpBtn.Font = Enum.Font.GothamBold; tpBtn.TextSize = 12
+        tpBtn.Parent = holder
+        Instance.new("UICorner",tpBtn).CornerRadius = UDim.new(0,5)
+
+        local function render()
+            if mode=="fly" then
+                flyBtn.BackgroundColor3=Color3.fromRGB(80,200,120)
+                flyBtn.TextColor3=Color3.fromRGB(15,15,20)
+                tpBtn.BackgroundColor3=Color3.fromRGB(50,50,62)
+                tpBtn.TextColor3=Color3.fromRGB(220,220,230)
+            else
+                tpBtn.BackgroundColor3=Color3.fromRGB(80,200,120)
+                tpBtn.TextColor3=Color3.fromRGB(15,15,20)
+                flyBtn.BackgroundColor3=Color3.fromRGB(50,50,62)
+                flyBtn.TextColor3=Color3.fromRGB(220,220,230)
+            end
+        end
+        flyBtn.MouseButton1Click:Connect(function() mode="fly"; render() end)
+        tpBtn.MouseButton1Click:Connect(function() mode="tp"; render() end)
+        render()
+        return { get = function() return mode end }
+    end
+
+    local function enableFarmSupport()
+        startAntisit(); startNoclip(); startFly()
+        if State.mainToggles.antisit then State.mainToggles.antisit.setActive(true) end
+        if State.mainToggles.noclip then State.mainToggles.noclip.setActive(true) end
+        if State.mainToggles.fly then State.mainToggles.fly.setActive(true) end
+    end
+    local function disableFarmSupport()
+        stopAntisit(); stopNoclip(); stopFly()
+        if State.mainToggles.antisit then State.mainToggles.antisit.setActive(false) end
+        if State.mainToggles.noclip then State.mainToggles.noclip.setActive(false) end
+        if State.mainToggles.fly then State.mainToggles.fly.setActive(false) end
+    end
+
+    local function runCollectFarm(opts)
+        local active = true
+        local visited = {}
+        local counter = 0
+        local mode = opts.modeRef
+        task.spawn(function()
+            while active and State.running do
+                local folder = opts.folderFn()
+                if not folder then break end
+                local unvisited = {}
+                for _, obj in ipairs(folder:GetChildren()) do
+                    if (obj:IsA("Model") or obj:IsA("BasePart")) and not visited[obj] then
+                        table.insert(unvisited, obj)
+                    end
+                end
+                if #unvisited == 0 then break end
+                local hrp = getHRP()
+                if hrp and mode.get()=="tp" then
+                    table.sort(unvisited, function(a,b)
+                        local pa,pb = getPosition(a), getPosition(b)
+                        if not pa or not pb then return false end
+                        return (pa-hrp.Position).Magnitude < (pb-hrp.Position).Magnitude
+                    end)
+                end
+                for _, obj in ipairs(unvisited) do
+                    if not active then break end
+                    if visited[obj] or not obj.Parent then
+                        visited[obj] = true
+                    else
+                        local pos = getPosition(obj)
+                        if pos then
+                            visited[obj] = true
+                            if mode.get()=="tp" then
+                                teleportToExact(pos); task.wait(0.25)
+                            else
+                                travelTo(pos, function() return not active end); task.wait(0.5)
+                            end
+                            counter = counter + 1
+                            opts.onCounter(counter)
+                        end
+                    end
+                end
+            end
+            if active then active = false; opts.onComplete(counter) end
+        end)
+        return function() active = false end
+    end
+
+    -- === 1. HalloweenHouses (with Auto Knock Knock) ===
+    local housesSection=createCollapsible(eventScroll,"HalloweenHouses",1,false)
+    local housesListHolder=Instance.new("Frame")
+    housesListHolder.Size=UDim2.new(1,0,0,0); housesListHolder.AutomaticSize=Enum.AutomaticSize.Y
+    housesListHolder.BackgroundColor3=Color3.fromRGB(20,20,24); housesListHolder.BorderSizePixel=0
+    housesListHolder.LayoutOrder=3; housesListHolder.Parent=housesSection.content
+    Instance.new("UICorner",housesListHolder).CornerRadius=UDim.new(0,4)
+    local hl=Instance.new("UIListLayout",housesListHolder); hl.Padding=UDim.new(0,2); hl.SortOrder=Enum.SortOrder.LayoutOrder
+    local hlp=Instance.new("UIPadding",housesListHolder)
+    hlp.PaddingTop=UDim.new(0,4); hlp.PaddingBottom=UDim.new(0,4)
+    hlp.PaddingLeft=UDim.new(0,4); hlp.PaddingRight=UDim.new(0,4)
+
+    State.espHandles["houses"] = { highlights = {}, conns = {} }
+    local function refreshHousesList()
+        for _,c in ipairs(housesListHolder:GetChildren()) do
+            if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end
+        end
+        local h = workspace:FindFirstChild("Halloween2026")
+        local folder = h and h:FindFirstChild("HalloweenHouses")
+        if not folder then
+            local empty=Instance.new("TextLabel")
+            empty.Size=UDim2.new(1,0,0,20); empty.BackgroundTransparency=1
+            empty.Text="HalloweenHouses not found"; empty.TextColor3=Color3.fromRGB(120,120,135)
+            empty.Font=Enum.Font.Gotham; empty.TextSize=11; empty.LayoutOrder=1
+            empty.Parent=housesListHolder; return
+        end
+        local models = {}
+        for _,c in ipairs(folder:GetChildren()) do
+            if c:IsA("Model") then table.insert(models,c) end
+        end
+        for i,model in ipairs(models) do
+            local row=Instance.new("TextButton")
+            row.Size=UDim2.new(1,0,0,26); row.BackgroundColor3=Color3.fromRGB(34,34,42)
+            row.BorderSizePixel=0; row.Text=""; row.AutoButtonColor=false
+            row.LayoutOrder=i; row.Parent=housesListHolder
+            Instance.new("UICorner",row).CornerRadius=UDim.new(0,4)
+            local lbl=Instance.new("TextLabel")
+            lbl.Size=UDim2.new(1,-12,1,0); lbl.Position=UDim2.fromOffset(10,0)
+            lbl.BackgroundTransparency=1; lbl.Text="house "..i
+            lbl.TextColor3=Color3.fromRGB(210,210,220); lbl.Font=Enum.Font.Gotham
+            lbl.TextSize=12; lbl.TextXAlignment=Enum.TextXAlignment.Left; lbl.Parent=row
+            row.MouseEnter:Connect(function() row.BackgroundColor3=Color3.fromRGB(48,48,60) end)
+            row.MouseLeave:Connect(function() row.BackgroundColor3=Color3.fromRGB(34,34,42) end)
+            row.MouseButton1Click:Connect(function()
+                local pos=getPosition(model)
+                if pos then teleportTo(pos); notify("TP","house "..i,Color3.fromRGB(80,200,120)) end
+            end)
+        end
+    end
+
+    local knockToggle
+    knockToggle = createInteractive(housesSection.content, {
+        Text="Auto Knock Knock", Desc="Visits doors, presses E twice", Type="toggle", Order=1,
+        OnToggle=function(state)
+            if state then
+                local h = workspace:FindFirstChild("Halloween2026")
+                local folder = h and h:FindFirstChild("HalloweenHouses")
+                if not folder then
+                    notify("Knock","HalloweenHouses not found",Color3.fromRGB(200,80,80))
+                    knockToggle.setActive(false); return
+                end
+                startKnockKnock()
+                notify("Knock","Started",Color3.fromRGB(80,200,120))
+            else
+                stopKnockKnock()
+                notify("Knock","Stopped",Color3.fromRGB(240,200,60))
+            end
+        end,
+    })
+    State.mainToggles.knockKnock = knockToggle
+
+    createInteractive(housesSection.content,{
+        Text="ESP on houses", Desc="Highlight all houses", Type="toggle", Order=2,
+        OnToggle=function(state)
+            clearEspFor("houses"); if not state then return end
+            local h=workspace:FindFirstChild("Halloween2026")
+            local folder=h and h:FindFirstChild("HalloweenHouses")
+            if not folder then notify("ESP","Folder not found",Color3.fromRGB(200,80,80)); return end
+            for _,c in ipairs(folder:GetChildren()) do
+                if c:IsA("Model") then
+                    local h2=createEspForObject(c,"houses",Color3.fromRGB(255,140,40))
+                    if h2 then State.espHandles["houses"].highlights[c]=h2 end
+                end
+            end
+        end,
+    })
+    refreshHousesList()
+    task.spawn(function()
+        while State.running and gui.Parent do
+            task.wait(5)
+            if housesSection.holder.Parent then refreshHousesList() end
+        end
+    end)
+
+    -- === 2. BarnEvent (with TP to event) ===
+    local barnSection=createCollapsible(eventScroll,"BarnEvent",2,false)
+
+    createInteractive(barnSection.content,{
+        Text="Teleport to event", Desc="(-1182, 603, 2590)", Order=1,
+        OnClick=function()
+            teleportTo(Vector3.new(-1182, 603, 2590))
+            notify("BarnEvent","Teleported",Color3.fromRGB(80,200,120))
+        end,
+    })
+
+    local barnListHolder=Instance.new("Frame")
+    barnListHolder.Size=UDim2.new(1,0,0,0); barnListHolder.AutomaticSize=Enum.AutomaticSize.Y
+    barnListHolder.BackgroundColor3=Color3.fromRGB(20,20,24); barnListHolder.BorderSizePixel=0
+    barnListHolder.LayoutOrder=3; barnListHolder.Parent=barnSection.content
+    Instance.new("UICorner",barnListHolder).CornerRadius=UDim.new(0,4)
+    local bl=Instance.new("UIListLayout",barnListHolder); bl.Padding=UDim.new(0,2); bl.SortOrder=Enum.SortOrder.LayoutOrder
+    local blp=Instance.new("UIPadding",barnListHolder)
+    blp.PaddingTop=UDim.new(0,4); blp.PaddingBottom=UDim.new(0,4)
+    blp.PaddingLeft=UDim.new(0,4); blp.PaddingRight=UDim.new(0,4)
+
+    State.espHandles["barn"] = { highlights = {}, conns = {} }
+    local function isBarnFind(name)
+        local num=name:match("^BarnFindPart(%d+)$")
+        if not num then return false end
+        local n=tonumber(num); return n and n>=1 and n<=20
+    end
+    local function refreshBarnList()
+        for _,c in ipairs(barnListHolder:GetChildren()) do
+            if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end
+        end
+        local found={}
+        for _,d in ipairs(workspace:GetDescendants()) do
+            if isBarnFind(d.Name) then table.insert(found,d) end
+        end
+        table.sort(found,function(a,b) return a.Name<b.Name end)
+        if #found==0 then
+            local empty=Instance.new("TextLabel")
+            empty.Size=UDim2.new(1,0,0,20); empty.BackgroundTransparency=1
+            empty.Text="BarnFindPart1..20 not found"; empty.TextColor3=Color3.fromRGB(120,120,135)
+            empty.Font=Enum.Font.Gotham; empty.TextSize=11; empty.LayoutOrder=1
+            empty.Parent=barnListHolder; return
+        end
+        for i,obj in ipairs(found) do
+            local row=Instance.new("TextButton")
+            row.Size=UDim2.new(1,0,0,26); row.BackgroundColor3=Color3.fromRGB(34,34,42)
+            row.BorderSizePixel=0; row.Text=""; row.AutoButtonColor=false
+            row.LayoutOrder=i; row.Parent=barnListHolder
+            Instance.new("UICorner",row).CornerRadius=UDim.new(0,4)
+            local lbl=Instance.new("TextLabel")
+            lbl.Size=UDim2.new(1,-12,1,0); lbl.Position=UDim2.fromOffset(10,0)
+            lbl.BackgroundTransparency=1; lbl.Text=obj.Name
+            lbl.TextColor3=Color3.fromRGB(210,210,220); lbl.Font=Enum.Font.Gotham
+            lbl.TextSize=12; lbl.TextXAlignment=Enum.TextXAlignment.Left; lbl.Parent=row
+            row.MouseEnter:Connect(function() row.BackgroundColor3=Color3.fromRGB(48,48,60) end)
+            row.MouseLeave:Connect(function() row.BackgroundColor3=Color3.fromRGB(34,34,42) end)
+            row.MouseButton1Click:Connect(function()
+                local pos=getPosition(obj)
+                if pos then teleportTo(pos); notify("TP",obj.Name,Color3.fromRGB(80,200,120)) end
+            end)
+        end
+    end
+    createInteractive(barnSection.content,{
+        Text="ESP on BarnFindPart", Desc="Highlight all", Type="toggle", Order=2,
+        OnToggle=function(state)
+            clearEspFor("barn"); if not state then return end
+            for _,d in ipairs(workspace:GetDescendants()) do
+                if isBarnFind(d.Name) then
+                    local h2=createEspForObject(d,"barn",Color3.fromRGB(255,200,60))
+                    if h2 then State.espHandles["barn"].highlights[d]=h2 end
+                end
+            end
+        end,
+    })
+    refreshBarnList()
+    task.spawn(function()
+        while State.running and gui.Parent do
+            task.wait(5)
+            if barnSection.holder.Parent then refreshBarnList() end
+        end
+    end)
+
+    -- === 3. PumkinFinder ===
+    local pfSection=createCollapsible(eventScroll,"PumkinFinder",3,false)
+    local pfMode = makeFarmModeRow(pfSection.content, 2)
+    local pfCounterLabel=Instance.new("TextLabel")
+    pfCounterLabel.Size=UDim2.new(1,0,0,20); pfCounterLabel.BackgroundTransparency=1
+    pfCounterLabel.Text="Collected: 0"; pfCounterLabel.TextColor3=Color3.fromRGB(200,200,215)
+    pfCounterLabel.Font=Enum.Font.Gotham; pfCounterLabel.TextSize=12
+    pfCounterLabel.LayoutOrder=10; pfCounterLabel.Parent=pfSection.content
+
+    local pfStop=nil
+    local pfToggle
+    pfToggle=createInteractive(pfSection.content,{
+        Text="PumkinsFinder", Desc="Auto-collect all pumpkins", Type="toggle", Order=3,
+        OnToggle=function(state)
+            if not state then
+                if pfStop then pfStop(); pfStop=nil end
+                disableFarmSupport(); return
+            end
+            pfCounterLabel.Text="Collected: 0"
+            enableFarmSupport()
+            pfStop = runCollectFarm({
+                folderFn = function()
+                    local c=workspace:FindFirstChild("Collectibles")
+                    return c and c:FindFirstChild("Halloween2026Pumpkins")
+                end,
+                modeRef = pfMode,
+                onCounter = function(n) pfCounterLabel.Text="Collected: "..n end,
+                onComplete = function(n)
+                    pfStop=nil
+                    pfToggle.setActive(false)
+                    disableFarmSupport()
+                    notify("PumkinFinder","Done. "..n,Color3.fromRGB(80,200,120))
+                end,
+            })
+        end,
+    })
+
+    -- === 4. PumkinFarmer ===
+    local pfmSection=createCollapsible(eventScroll,"PumkinFarmer",4,false)
+    local pfmMode = makeFarmModeRow(pfmSection.content, 2)
+    local pfmCounterLabel=Instance.new("TextLabel")
+    pfmCounterLabel.Size=UDim2.new(1,0,0,20); pfmCounterLabel.BackgroundTransparency=1
+    pfmCounterLabel.Text="Collected: 0"; pfmCounterLabel.TextColor3=Color3.fromRGB(200,200,215)
+    pfmCounterLabel.Font=Enum.Font.Gotham; pfmCounterLabel.TextSize=12
+    pfmCounterLabel.LayoutOrder=10; pfmCounterLabel.Parent=pfmSection.content
+
+    local pfmStop=nil
+    local pfmToggle
+    pfmToggle=createInteractive(pfmSection.content,{
+        Text="PumkinFarmer", Desc="Auto-collect local pumpkins", Type="toggle", Order=3,
+        OnToggle=function(state)
+            if not state then
+                if pfmStop then pfmStop(); pfmStop=nil end
+                disableFarmSupport(); return
+            end
+            pfmCounterLabel.Text="Collected: 0"
+            enableFarmSupport()
+            pfmStop = runCollectFarm({
+                folderFn = function() return workspace:FindFirstChild("HalloweenPumpkinsLocal") end,
+                modeRef = pfmMode,
+                onCounter = function(n) pfmCounterLabel.Text="Collected: "..n end,
+                onComplete = function(n)
+                    pfmStop=nil
+                    pfmToggle.setActive(false)
+                    disableFarmSupport()
+                    notify("PumkinFarmer","Done. "..n,Color3.fromRGB(80,200,120))
+                end,
+            })
+        end,
+    })
+
+    -- === 5. CrystalFinder ===
+    local crySection=createCollapsible(eventScroll,"CrystalFinder",5,false)
+    local cryMode = makeFarmModeRow(crySection.content, 2)
+    local cryCounterLabel=Instance.new("TextLabel")
+    cryCounterLabel.Size=UDim2.new(1,0,0,20); cryCounterLabel.BackgroundTransparency=1
+    cryCounterLabel.Text="Collected: 0"; cryCounterLabel.TextColor3=Color3.fromRGB(200,200,215)
+    cryCounterLabel.Font=Enum.Font.Gotham; cryCounterLabel.TextSize=12
+    cryCounterLabel.LayoutOrder=10; cryCounterLabel.Parent=crySection.content
+
+    local cryStop=nil
+    local cryToggle
+    cryToggle=createInteractive(crySection.content,{
+        Text="CrystalFinder", Desc="Auto-collect all crystals", Type="toggle", Order=3,
+        OnToggle=function(state)
+            if not state then
+                if cryStop then cryStop(); cryStop=nil end
+                disableFarmSupport(); return
+            end
+            cryCounterLabel.Text="Collected: 0"
+            enableFarmSupport()
+            cryStop = runCollectFarm({
+                folderFn = function()
+                    local c=workspace:FindFirstChild("Collectibles")
+                    return c and c:FindFirstChild("Halloween2026")
+                end,
+                modeRef = cryMode,
+                onCounter = function(n) cryCounterLabel.Text="Collected: "..n end,
+                onComplete = function(n)
+                    cryStop=nil
+                    cryToggle.setActive(false)
+                    disableFarmSupport()
+                    notify("CrystalFinder","Done. "..n,Color3.fromRGB(80,200,120))
+                end,
+            })
+        end,
+    })
+        -- === 6. Maze ===
+    local mazeSection=createCollapsible(eventScroll,"Maze",6,false)
+
+    createInteractive(mazeSection.content,{
+        Text="Teleport to maze", Desc="(5165, 649, -6078)", Order=1,
+        OnClick=function()
+            teleportTo(Vector3.new(5165,649,-6078))
+            notify("Maze","Teleported",Color3.fromRGB(80,200,120))
+        end,
+    })
+
+    local mazeMode = makeFarmModeRow(mazeSection.content, 2)
+
+    local selectedMaze="Castle1"
+    local mazeButtons={}
+    local mazeBtnHolder=Instance.new("Frame")
+    mazeBtnHolder.Size=UDim2.new(1,0,0,32); mazeBtnHolder.BackgroundTransparency=1
+    mazeBtnHolder.LayoutOrder=3; mazeBtnHolder.Parent=mazeSection.content
+    local mbl=Instance.new("UIListLayout",mazeBtnHolder)
+    mbl.FillDirection=Enum.FillDirection.Horizontal
+    mbl.Padding=UDim.new(0,4); mbl.SortOrder=Enum.SortOrder.LayoutOrder
+
+    local mazeLocs={"Castle1","Castle2","Cornfield1","Cornfield2"}
+    local function refreshMazeButtons()
+        for _,loc in ipairs(mazeLocs) do
+            local btn=mazeButtons[loc]
+            if btn then
+                if loc==selectedMaze then
+                    btn.BackgroundColor3=Color3.fromRGB(80,200,120)
+                    btn.TextColor3=Color3.fromRGB(15,15,20)
+                else
+                    btn.BackgroundColor3=Color3.fromRGB(50,50,62)
+                    btn.TextColor3=Color3.fromRGB(220,220,230)
+                end
+            end
+        end
+    end
+    for i,loc in ipairs(mazeLocs) do
+        local btn=Instance.new("TextButton")
+        btn.Size=UDim2.new(0.25,-3,1,0)
+        btn.BackgroundColor3=Color3.fromRGB(50,50,62)
+        btn.BorderSizePixel=0; btn.Text=loc
+        btn.TextColor3=Color3.fromRGB(220,220,230)
+        btn.Font=Enum.Font.GothamMedium; btn.TextSize=11
+        btn.LayoutOrder=i; btn.Parent=mazeBtnHolder
+        Instance.new("UICorner",btn).CornerRadius=UDim.new(0,5)
+        btn.MouseButton1Click:Connect(function() selectedMaze=loc; refreshMazeButtons() end)
+        mazeButtons[loc]=btn
+    end
+    refreshMazeButtons()
+
+    local mazeCounterLabel=Instance.new("TextLabel")
+    mazeCounterLabel.Size=UDim2.new(1,0,0,20); mazeCounterLabel.BackgroundTransparency=1
+    mazeCounterLabel.Text="Candy collected: 0"; mazeCounterLabel.TextColor3=Color3.fromRGB(200,200,215)
+    mazeCounterLabel.Font=Enum.Font.Gotham; mazeCounterLabel.TextSize=12
+    mazeCounterLabel.LayoutOrder=10; mazeCounterLabel.Parent=mazeSection.content
+
+    local mazeStop=nil
+    local mazeToggle
+    mazeToggle=createInteractive(mazeSection.content,{
+        Text="Farm selected location", Desc="Candy -> Finish", Type="toggle", Order=4,
+        OnToggle=function(state)
+            if not state then
+                if mazeStop then mazeStop(); mazeStop=nil end
+                disableFarmSupport(); return
+            end
+            mazeCounterLabel.Text="Candy collected: 0"
+            enableFarmSupport()
+            local counter = 0
+            local active = true
+            task.spawn(function()
+                local h=workspace:FindFirstChild("Halloween2026")
+                local mazes=h and h:FindFirstChild("Mazes")
+                local model=mazes and mazes:FindFirstChild(selectedMaze)
+                if not model then
+                    notify("Maze","Location not found",Color3.fromRGB(200,80,80))
+                    active=false
+                    mazeToggle.setActive(false)
+                    disableFarmSupport(); return
+                end
+                local candyFolder=model:FindFirstChild("Candy")
+                local finishModel=model:FindFirstChild("Finish")
+                if candyFolder then
+                    local visited={}
+                    while active do
+                        local unvisited={}
+                        for _,obj in ipairs(candyFolder:GetChildren()) do
+                            if (obj:IsA("Model") or obj:IsA("BasePart")) and not visited[obj] then
+                                table.insert(unvisited,obj)
+                            end
+                        end
+                        if #unvisited==0 then break end
+                        for _,obj in ipairs(unvisited) do
+                            if not active then break end
+                            if visited[obj] or not obj.Parent then visited[obj]=true
+                            else
+                                local pos=getPosition(obj)
+                                if pos then
+                                    visited[obj]=true
+                                    if mazeMode.get()=="tp" then
+                                        teleportToExact(pos); task.wait(0.25)
+                                    else
+                                        travelTo(pos,function() return not active end); task.wait(0.5)
+                                    end
+                                    counter=counter+1
+                                    mazeCounterLabel.Text="Candy collected: "..counter
+                                end
+                            end
+                        end
+                    end
+                end
+                if active and finishModel then
+                    local fp=getPosition(finishModel)
+                    if fp then
+                        if mazeMode.get()=="tp" then teleportToExact(fp) else travelTo(fp,function() return not active end) end
+                        task.wait(1)
+                    end
+                end
+                if active then
+                    active=false
+                    mazeToggle.setActive(false)
+                    disableFarmSupport()
+                    notify("Maze","Finished. Candy: "..counter,Color3.fromRGB(80,200,120))
+                end
+            end)
+            mazeStop = function() active=false end
+        end,
+    })
+
+    -- ============================================
+    --          STARTUP: выбор вкладки, scale, cleanup
+    -- ============================================
+    selectTab("Info")
+
+    TweenService:Create(windowScale,TweenInfo.new(0.35,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Scale=1}):Play()
+
+    local cam=workspace.CurrentCamera
+    if cam then
+        local conn
+        conn=cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+            if not window.Parent then
+                if conn then conn:Disconnect() end; return
+            end
+            local s=computeWindowSize()
+            window.Size=UDim2.fromOffset(s.X,s.Y)
+        end)
+        State.viewConn=conn
+    end
+
+    -- === CLEANUP (full unload) ===
+    table.insert(State.cleanupFns,function()
+        for key in pairs(State.espHandles) do clearEspFor(key) end
+        State.farmStates = {}
+
+        -- Player effects
+        pcall(stopFly); pcall(stopNoclip); pcall(stopSpin)
+        pcall(stopAntisit); pcall(stopInfJump)
+
+        -- Car effects
+        pcall(stopCarSpeed); pcall(stopCarFly); pcall(stopCarFarm); pcall(stopCarNoclip)
+        pcall(stopAutoDrive); pcall(stopKnockKnock)
+
+        -- Visuals
+        pcall(stopPlayerEsp); pcall(stopHud); pcall(restoreFpsBoost)
+
+        if shaderData and shaderData.active then
+            for _,e in ipairs(shaderData.effects) do pcall(function() e:Destroy() end) end
+            shaderData.effects={}; shaderData.active=false
+        end
+
+        if fbData.active then
+            pcall(function()
+                Lighting.Brightness=fbData.save.brightness
+                Lighting.Ambient=fbData.save.ambient
+                Lighting.OutdoorAmbient=fbData.save.outdoor
+                Lighting.GlobalShadows=fbData.save.shadows
+                Lighting.ClockTime=fbData.save.clock
+            end)
+            fbData.active=false
+        end
+
+        if nfData.active then
+            pcall(function()
+                Lighting.FogEnd=nfData.saveFogEnd
+                Lighting.FogStart=nfData.saveFogStart
+            end)
+            for atm,s in pairs(nfData.atmoStates) do
+                if atm and atm.Parent then atm.Density=s.Density; atm.Haze=s.Haze end
+            end
+            nfData.atmoStates={}; nfData.active=false
+        end
+    end)
+
+    return gui
+end
+-- ============ START (progressive loading) ============
+State.introGui = makeIntro(function()
+    if not State.running then return end
+    task.defer(function()
+        if not State.running then return end
+        State.mainGui = makeMainGui()
+    end)
+end)
+
+-- ============ GLOBAL REGISTRATION ============
+getgenv().__KotostHub = State
+getgenv().__KotostHub.cleanup = function()
+    -- 1) Сначала отключаем ВСЁ
+    State.running = false
+
+    if State.statConn then
+        pcall(function() State.statConn:Disconnect() end)
+        State.statConn = nil
+    end
+
+    if State.viewConn then
+        pcall(function() State.viewConn:Disconnect() end)
+        State.viewConn = nil
+    end
+
+    for _, fn in ipairs(State.cleanupFns) do
+        pcall(fn)
+    end
+    State.cleanupFns = {}
+
+    -- 2) Затем полностью выгружаем GUI
+    if State.introGui then
+        pcall(function() State.introGui:Destroy() end)
+        State.introGui = nil
+    end
+    if State.mainGui then
+        pcall(function() State.mainGui:Destroy() end)
+        State.mainGui = nil
+    end
+
+    -- 3) Снимаем глобальную ссылку
+    getgenv().__KotostHub = nil
+end
